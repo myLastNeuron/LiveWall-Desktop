@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  video {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+    opacity: 0; transition: opacity 220ms ease;
+    background: #000;
+  }
+  video.on { opacity: 1; }
+</style>
+</head>
+<body>
+<video id="v" muted playsinline autoplay disablepictureinpicture></video>
+<script>
+  var v = document.getElementById('v');
+
+  v.addEventListener('loadeddata', function () { v.classList.add('on'); });
+  v.addEventListener('error', function () { v.classList.remove('on'); });
+
+  // called from C# after navigation
+  window.setSource = function (url) {
+    v.classList.remove('on');
+    v.loop = true;
+    v.src = url;
+    v.load();
+    v.play().catch(function () {});
+  };
+
+  window.vw_pause = function () { v.pause(); };
+  window.vw_play = function () { v.play().catch(function () {}); };
+</script>
+</body>
+</html>

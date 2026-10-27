@@ -1,0 +1,1194 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="dark light">
+<title>LiveWall</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+
+  :root {
+    --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    --font-display: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    --r-sm: 8px; --r-lg: 14px; --r-xl: 18px;
+    --dur: 120ms;
+    --ease: cubic-bezier(.2, 0, 0, 1);
+  }
+
+  html[data-theme="dark"] {
+    --bg: #0a0a0b; --panel: #111113; --panel-2: #17171a; --panel-3: #222227;
+    --line: rgba(255,255,255,.07); --line-2: rgba(255,255,255,.14);
+    --ink: #f4f4f6; --ink-2: #a6a6ae; --ink-3: #8a8a94;
+    --hover: rgba(255,255,255,.05); --hover-2: rgba(255,255,255,.10);
+    --primary: #f4f4f6; --primary-hover: #ffffff; --primary-ink: #0a0a0b;
+    --media: #060608;
+    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 18px 44px rgba(0,0,0,.5);
+    --focus: #c8c8d2;
+  }
+
+  html[data-theme="light"] {
+    --bg: #fafafa; --panel: #ffffff; --panel-2: #f4f4f5; --panel-3: #e8e8eb;
+    --line: rgba(9,9,11,.09); --line-2: rgba(9,9,11,.18);
+    --ink: #111114; --ink-2: #54545d; --ink-3: #6d6d77;
+    --hover: rgba(9,9,11,.04); --hover-2: rgba(9,9,11,.08);
+    --primary: #111114; --primary-hover: #000000; --primary-ink: #ffffff;
+    --media: #e6e6ea;
+    --shadow: 0 1px 2px rgba(9,9,11,.07), 0 18px 44px rgba(9,9,11,.12);
+    --focus: #111114;
+  }
+
+  html, body { height: 100%; }
+
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--font); font-size: 13px; line-height: 1.45;
+    -webkit-font-smoothing: antialiased; overflow: hidden;
+    user-select: none; cursor: default;
+  }
+
+  ::selection { background: var(--line-2); color: var(--ink); }
+  [hidden] { display: none !important; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 7px; }
+  button { font: inherit; color: inherit; }
+
+  .app { height: 100%; display: grid; grid-template-rows: 40px 1fr 30px; }
+
+  /* ---------- title bar ---------- */
+
+  .titlebar {
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--line); background: var(--bg); padding-left: 14px;
+  }
+
+  .brand { display: flex; align-items: center; gap: 9px; height: 100%; }
+  .brand svg { display: block; }
+  .brand-name {
+    font-family: var(--font-display); font-size: 12.5px; font-weight: 600;
+    letter-spacing: .005em; color: var(--ink);
+  }
+  .brand-version { font-size: 11px; color: var(--ink-3); letter-spacing: .02em; }
+
+  .tb-side { display: flex; align-items: center; height: 100%; }
+  .tb-sep { width: 1px; height: 16px; background: var(--line-2); margin: 0 4px; }
+
+  .tb-btn {
+    width: 30px; height: 30px; display: grid; place-items: center;
+    background: none; border: 0; border-radius: var(--r-sm); color: var(--ink-2);
+    cursor: pointer; transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+  }
+  .tb-btn:hover { background: var(--hover-2); color: var(--ink); }
+  .tb-btn:active { background: var(--hover); }
+
+  .win-btn {
+    width: 44px; height: 40px; display: grid; place-items: center;
+    background: none; border: 0; color: var(--ink-2); cursor: pointer;
+    transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+  }
+  .win-btn:hover { background: var(--hover-2); color: var(--ink); }
+  .win-btn.close:hover { background: #e81123; color: #fff; }
+  .win-btn:focus-visible { outline-offset: -3px; border-radius: 0; }
+
+  /* ---------- scroll surface ---------- */
+
+  .scroll { overflow-y: auto; overflow-x: hidden; padding: 20px 22px 22px; }
+  .scroll.is-welcome { display: grid; place-items: center; padding: 22px; }
+
+  .scroll::-webkit-scrollbar { width: 10px; }
+  .scroll::-webkit-scrollbar-track { background: transparent; }
+  .scroll::-webkit-scrollbar-thumb {
+    background: var(--line-2); border-radius: 99px;
+    border: 3px solid transparent; background-clip: padding-box;
+  }
+  .scroll::-webkit-scrollbar-thumb:hover { background: var(--ink-3); background-clip: padding-box; }
+
+  /* ---------- hero ---------- */
+
+  .hero {
+    position: relative; isolation: isolate; overflow: hidden;
+    border: 1px solid var(--line); border-radius: var(--r-xl);
+    background: var(--media); height: clamp(210px, 34vh, 320px);
+    width: 100%;
+  }
+
+  .hero-media, .hero-gif {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; display: none;
+  }
+  .hero-media.on, .hero-gif.on { display: block; }
+
+  .hero-shade {
+    position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(to top,
+      rgba(5,5,7,.92) 0%, rgba(5,5,7,.55) 38%, rgba(5,5,7,.12) 70%, rgba(5,5,7,0) 100%);
+  }
+
+  .hero-tile {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    color: var(--ink-3); opacity: .55;
+  }
+  .hero-tile svg { width: 38px; height: 38px; }
+
+  .hero-top { position: absolute; top: 14px; left: 16px; display: flex; gap: 6px; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    border-radius: 6px; background: rgba(255,255,255,.94); color: #0a0a0b;
+    padding: 3px 8px; font-size: 11px; font-weight: 650; letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+  .badge .dot { width: 5px; height: 5px; border-radius: 99px; background: currentColor; }
+  .badge.is-paused { background: rgba(10,10,11,.6); color: #f4f4f6; border: 1px solid rgba(255,255,255,.25); }
+
+  .hero-body {
+    position: absolute; inset: auto 0 0 0; display: flex; align-items: flex-end;
+    justify-content: space-between; gap: 26px; padding: 18px 20px;
+  }
+
+  .hero-copy { min-width: 0; }
+  .hero-title {
+    margin: 0; font-family: var(--font-display); font-size: 21px; font-weight: 600;
+    letter-spacing: -.017em; line-height: 1.2; color: #f6f6f7;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 52ch;
+  }
+  .hero-meta {
+    margin: 5px 0 0; font-size: 12px; color: rgba(244,244,246,.68);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .hero-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+
+  /* hero in its calm (no media) state uses the theme's own surface */
+  .hero.hero--calm .hero-title { color: var(--ink); }
+  .hero.hero--calm .hero-meta { color: var(--ink-3); }
+  .hero.hero--calm .hero-shade { background: none; }
+  .hero.hero--calm .hero-tile { opacity: .3; }
+
+  .hero.hero--welcome {
+    height: auto; min-height: clamp(260px, 46vh, 420px); max-width: 760px; margin: 0 auto;
+    display: grid; place-items: center; text-align: center;
+    background: var(--panel); border-style: dashed; border-color: var(--line-2);
+  }
+  .hero.hero--welcome .hero-body {
+    position: static; display: block; padding: 26px 24px; max-width: 560px;
+  }
+  .hero.hero--welcome .hero-title {
+    font-size: 26px; letter-spacing: -.025em; white-space: normal; color: var(--ink);
+  }
+  .hero.hero--welcome .hero-meta { font-size: 13px; line-height: 1.55; margin-top: 8px; color: var(--ink-2); }
+  .hero.hero--welcome .hero-actions { justify-content: center; margin-top: 18px; }
+  .hero.hero--welcome .hero-shade, .hero.hero--welcome .hero-top { display: none; }
+  .hero-hint { margin: 14px 0 0; font-size: 12px; color: var(--ink-3); letter-spacing: .02em; }
+
+  /* ---------- buttons ---------- */
+
+  .btn {
+    height: 34px; padding: 0 14px; border-radius: 9px; border: 1px solid var(--line-2);
+    background: transparent; color: var(--ink); font-size: 12.5px; font-weight: 500;
+    display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; cursor: pointer;
+    transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease),
+                color var(--dur) var(--ease), opacity var(--dur) var(--ease);
+  }
+  .btn:hover { background: var(--hover); }
+  .btn:active { background: var(--hover-2); }
+  .btn:disabled { opacity: .5; cursor: default; background: transparent; }
+  .btn svg { flex: none; }
+
+  .btn.primary {
+    background: var(--primary); color: var(--primary-ink); border-color: transparent; font-weight: 600;
+  }
+  .btn.primary:hover { background: var(--primary-hover); }
+  .btn.primary:active { background: var(--primary); }
+  .btn.primary:disabled { opacity: 1; background: var(--hover-2); color: var(--ink-2); }
+
+  .btn.glass {
+    background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.18); color: #fff;
+  }
+  .btn.glass:hover { background: rgba(255,255,255,.18); }
+  .btn.glass:active { background: rgba(255,255,255,.24); }
+  .btn.small { height: 28px; padding: 0 10px; font-size: 12px; border-radius: 7px; }
+  .btn.link {
+    height: auto; padding: 0; border: 0; background: none; color: var(--ink-2);
+    font-size: 12px; font-weight: 500;
+  }
+  .btn.link:hover { background: none; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+
+  /* ---------- library ---------- */
+
+  .library { margin-top: 22px; }
+  .library.is-hidden { display: none; }
+
+  .lib-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; margin-bottom: 12px;
+  }
+
+  .lib-title {
+    margin: 0; display: flex; align-items: baseline; gap: 8px;
+    font-size: 14px; font-weight: 600; letter-spacing: -.005em;
+  }
+  .lib-count { font-size: 12px; font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+  .lib-tools { display: flex; align-items: center; gap: 8px; }
+
+  .search {
+    display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px;
+    border-radius: var(--r-sm); background: var(--panel); border: 1px solid var(--line);
+    color: var(--ink-3);
+    transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease);
+  }
+  .search:hover { border-color: var(--line-2); }
+  .search:focus-within { border-color: var(--line-2); background: var(--panel-2); }
+  .search input {
+    width: 168px; border: 0; outline: 0; background: none; color: var(--ink);
+    font: inherit; font-size: 12.5px; user-select: text;
+  }
+  .search input::placeholder { color: var(--ink-3); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 12px; }
+
+  .card {
+    position: relative; border-radius: var(--r-lg); border: 1px solid var(--line);
+    background: var(--panel); overflow: hidden; cursor: pointer;
+    transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease);
+  }
+  .card:hover { border-color: var(--line-2); background: var(--panel-2); }
+  .card.is-selected { border-color: var(--ink-3); }
+  .card.is-missing .card-name { color: var(--ink-3); }
+
+  .card-hit {
+    position: absolute; inset: 0; z-index: 1; border: 0; background: none;
+    border-radius: inherit; cursor: pointer;
+  }
+  .card-hit:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: inherit; }
+
+  .media { position: relative; aspect-ratio: 16 / 9; background: var(--media); overflow: hidden; }
+  .media::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: rgba(5,5,7,0); transition: background-color var(--dur) var(--ease);
+  }
+  .card:hover .media::after { background: rgba(5,5,7,.22); }
+
+  .thumb {
+    position: absolute; inset: 0; background-size: cover; background-position: center;
+    opacity: 0; transition: opacity 160ms var(--ease);
+  }
+  .thumb.ready { opacity: 1; }
+  .thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb.tile { opacity: 1; display: grid; place-items: center; color: var(--ink-3); opacity: .5; }
+  .thumb.tile svg { width: 26px; height: 26px; }
+  .thumb.is-loading { opacity: 1; background: var(--panel-2); }
+
+  .preview-live {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; pointer-events: none;
+  }
+
+  .chip {
+    position: absolute; top: 7px; left: 7px; z-index: 2;
+    display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px;
+    border-radius: 5px; background: rgba(244,244,246,.94); color: #0a0a0b;
+    font-size: 11px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase;
+  }
+  .chip.missing { background: rgba(10,10,11,.72); color: #fff; border: 1px solid rgba(255,255,255,.24); }
+
+  .card-x {
+    position: absolute; top: 7px; right: 7px; z-index: 3;
+    width: 23px; height: 23px; display: grid; place-items: center;
+    border-radius: 6px; border: 1px solid rgba(255,255,255,.16);
+    background: rgba(8,8,10,.72); color: #fff; cursor: pointer;
+    opacity: 0; transition: opacity var(--dur) var(--ease), background-color var(--dur) var(--ease);
+  }
+  .card:hover .card-x, .card:focus-within .card-x { opacity: 1; }
+  .card-x:hover { background: #e81123; border-color: transparent; }
+  .card-x:focus-visible { opacity: 1; }
+
+  .card-apply {
+    position: absolute; right: 7px; bottom: 7px; z-index: 3;
+    opacity: 0; transform: none;
+    background: rgba(244,244,246,.94); color: #0a0a0b; border-color: transparent; font-weight: 600;
+    transition: opacity var(--dur) var(--ease), background-color var(--dur) var(--ease);
+  }
+  .card:hover .card-apply, .card:focus-within .card-apply { opacity: 1; }
+  .card-apply:hover { background: #fff; }
+
+  .card-meta { padding: 10px 11px 11px; min-width: 0; }
+  .card-name {
+    font-size: 13px; font-weight: 500; letter-spacing: -.002em;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .card-sub {
+    margin-top: 2px; font-size: 12px; color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  .no-results {
+    padding: 34px 16px; text-align: center; color: var(--ink-3); font-size: 12.5px;
+    border: 1px dashed var(--line-2); border-radius: var(--r-lg);
+  }
+
+  /* ---------- status bar ---------- */
+
+  .statusbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 20px;
+    padding: 0 22px; border-top: 1px solid var(--line); background: var(--bg);
+    color: var(--ink-3); font-size: 12px; letter-spacing: .01em;
+    white-space: nowrap; overflow: hidden;
+  }
+  .statusbar span { overflow: hidden; text-overflow: ellipsis; }
+
+  /* ---------- settings popover ---------- */
+
+  .pop {
+    position: fixed; top: 44px; right: 12px; width: 320px; z-index: 40;
+    background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-lg);
+    box-shadow: var(--shadow); overflow: hidden;
+  }
+  .pop[hidden] { display: none; }
+
+  .pop-sec { padding: 12px 14px; }
+  .pop-sec + .pop-sec { border-top: 1px solid var(--line); }
+  .pop-sec.row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+  .pop-label { font-size: 12px; font-weight: 600; }
+  .pop-help { margin-top: 2px; font-size: 12px; color: var(--ink-3); line-height: 1.4; }
+  .pop-sec .seg { margin-top: 9px; width: 100%; }
+
+  .seg {
+    display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm);
+  }
+  .seg button {
+    flex: 1; height: 26px; padding: 0 9px; border: 0; border-radius: 6px; background: none;
+    color: var(--ink-2); font-size: 12px; font-weight: 500; cursor: pointer;
+    transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+  }
+  .seg button:hover { color: var(--ink); }
+  .seg button[aria-pressed="true"] { background: var(--panel-3); color: var(--ink); }
+
+  .switch {
+    position: relative; flex: none; width: 34px; height: 20px; padding: 0;
+    border-radius: 99px; border: 1px solid var(--line-2); background: var(--panel-2);
+    cursor: pointer;
+    transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  }
+  .switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+    border-radius: 99px; background: var(--ink-3);
+    transition: transform var(--dur) var(--ease), background-color var(--dur) var(--ease);
+  }
+  .switch[aria-checked="true"] { background: var(--primary); border-color: transparent; }
+  .switch[aria-checked="true"]::after { transform: translateX(14px); background: var(--primary-ink); }
+
+  .pop-foot { display: flex; justify-content: space-between; align-items: center; }
+
+  /* ---------- toast ---------- */
+
+  .toast {
+    position: fixed; left: 50%; bottom: 44px; z-index: 60;
+    transform: translateX(-50%);
+    padding: 8px 13px; border-radius: 99px; background: var(--ink); color: var(--bg);
+    font-size: 12px; font-weight: 500; box-shadow: var(--shadow);
+    opacity: 0; pointer-events: none;
+    transition: opacity 140ms var(--ease);
+  }
+  .toast.on { opacity: 1; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+
+  @media (max-width: 900px) {
+    .search input { width: 120px; }
+    .grid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+    .hero-title { font-size: 19px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="titlebar" id="titlebar">
+    <div class="brand">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="3.2" y="4.6" width="17.6" height="12.4" rx="2.6" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M8.6 20.2h6.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M7.4 12.4l2.5-2.6 2.2 2.2 2.3-2.9 2.2 3.3" stroke="currentColor" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round" opacity=".55"/>
+      </svg>
+      <span class="brand-name">LiveWall</span>
+      <span class="brand-version">1.0.0</span>
+    </div>
+
+    <div class="tb-side">
+      <button class="tb-btn" id="themeBtn" title="Switch theme (dark / light)" aria-label="Switch theme">
+        <svg id="iconMoon" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M20 14.4A8.4 8.4 0 0 1 9.6 4a8.4 8.4 0 1 0 10.4 10.4z" stroke="currentColor"
+                stroke-width="1.5" stroke-linejoin="round"/>
+        </svg>
+        <svg id="iconSun" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" hidden>
+          <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"
+                stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </button>
+
+      <button class="tb-btn" id="settingsBtn" title="Settings" aria-label="Settings" aria-expanded="false"
+              aria-controls="settings">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.64 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"
+                stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" opacity=".9"/>
+        </svg>
+      </button>
+
+      <div class="tb-sep"></div>
+
+      <button class="win-btn" id="minBtn" title="Minimize" aria-label="Minimize">
+        <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
+      <button class="win-btn" id="maxBtn" title="Maximize" aria-label="Maximize">
+        <svg id="iconMax" width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <rect x="2.2" y="2.2" width="7.6" height="7.6" stroke="currentColor" stroke-width="1.2"/>
+        </svg>
+        <svg id="iconRestore" width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true" hidden>
+          <rect x="2" y="3.6" width="6.4" height="6.4" stroke="currentColor" stroke-width="1.2"/>
+          <path d="M4.2 3.6V2h5.8v5.8H8.4" stroke="currentColor" stroke-width="1.2"/>
+        </svg>
+      </button>
+      <button class="win-btn close" id="closeBtn" title="Close to tray" aria-label="Close to tray">
+        <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+          <path d="M2.6 2.6l6.8 6.8M9.4 2.6L2.6 9.4" stroke="currentColor" stroke-width="1.2"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="scroll" id="scroll">
+    <section class="hero hero--welcome" id="hero">
+      <video class="hero-media" id="heroVideo" muted playsinline preload="metadata"></video>
+      <img class="hero-gif" id="heroGif" alt=""
+           src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7">
+      <div class="hero-tile" id="heroTile" hidden>
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect x="3.2" y="4.6" width="17.6" height="12.4" rx="2.6" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M8.6 20.2h6.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="hero-shade"></div>
+      <div class="hero-top">
+        <span class="badge" id="heroBadge" hidden><span class="dot"></span><span id="heroBadgeText">On desktop</span></span>
+      </div>
+      <div class="hero-body">
+        <div class="hero-copy">
+          <h1 class="hero-title" id="heroTitle">Bring your desktop to life</h1>
+          <p class="hero-meta" id="heroMeta">Loading your library…</p>
+          <p class="hero-hint" id="heroHint" hidden>Everything stays on this PC · MP4, WebM, MOV, MKV, GIF, HTML</p>
+        </div>
+        <div class="hero-actions">
+          <button class="btn glass" id="pauseBtn" hidden>Pause</button>
+          <button class="btn primary" id="applyBtn">Add wallpaper</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="library is-hidden" id="library">
+      <div class="lib-head">
+        <h2 class="lib-title">Library <span class="lib-count" id="libCount">0</span></h2>
+        <div class="lib-tools">
+          <label class="search" title="Search library">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="10.5" cy="10.5" r="6" stroke="currentColor" stroke-width="1.6"/>
+              <path d="M15.2 15.2L20 20" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+            <input id="search" type="search" placeholder="Search wallpapers" spellcheck="false" autocomplete="off"
+                   aria-label="Search wallpapers">
+          </label>
+          <button class="btn" id="addBtn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+            </svg>
+            Add wallpaper
+          </button>
+        </div>
+      </div>
+      <div class="grid" id="grid"></div>
+      <p class="no-results" id="noResults" hidden>Nothing matches that search.</p>
+    </section>
+  </main>
+
+  <footer class="statusbar">
+    <span id="statusLeft">Starting…</span>
+    <span id="statusRight">Ctrl+O add · Space pause · Enter apply · 1–9 quick apply</span>
+  </footer>
+</div>
+
+<div class="pop" id="settings" hidden role="dialog" aria-label="Settings">
+  <section class="pop-sec">
+    <div class="pop-label">Appearance</div>
+    <div class="seg" id="themeSeg" role="group" aria-label="Theme">
+      <button data-v="dark">Dark</button>
+      <button data-v="light">Light</button>
+    </div>
+  </section>
+
+  <section class="pop-sec">
+    <div class="pop-label">Auto-rotate</div>
+    <div class="seg" id="rotateSeg" role="group" aria-label="Rotate wallpapers">
+      <button data-m="0">Off</button>
+      <button data-m="30">30m</button>
+      <button data-m="60">1h</button>
+      <button data-m="360">6h</button>
+    </div>
+    <div class="pop-help" style="margin-top:8px">Switches to the next saved wallpaper on a timer.</div>
+  </section>
+
+  <section class="pop-sec row">
+    <div>
+      <div class="pop-label">Start with Windows</div>
+      <div class="pop-help">Restores your wallpaper at sign-in, quietly.</div>
+    </div>
+    <button class="switch" id="autostartSwitch" role="switch" aria-checked="false"
+            aria-label="Start with Windows"></button>
+  </section>
+
+  <section class="pop-sec row">
+    <div>
+      <div class="pop-label">Pause wallpaper</div>
+      <div class="pop-help">Stops playback until you press Play again.</div>
+    </div>
+    <button class="switch" id="pauseSwitch" role="switch" aria-checked="false" aria-label="Pause wallpaper"></button>
+  </section>
+
+  <section class="pop-sec row">
+    <div>
+      <div class="pop-label">Pause behind other apps</div>
+      <div class="pop-help">Stops the wallpaper while a maximized or fullscreen app is in front.</div>
+    </div>
+    <button class="switch" id="fullscreenSwitch" role="switch" aria-checked="true"
+            aria-label="Pause behind other apps"></button>
+  </section>
+
+  <section class="pop-sec row">
+    <div>
+      <div class="pop-label">Pause on battery</div>
+      <div class="pop-help">Stops playback on battery or when Windows is in battery-saver mode.</div>
+    </div>
+    <button class="switch" id="powerSwitch" role="switch" aria-checked="true"
+            aria-label="Pause on battery"></button>
+  </section>
+
+  <section class="pop-sec pop-foot">
+    <button class="btn link" id="quitBtn">Quit LiveWall</button>
+    <span class="pop-help" style="margin:0">Runs in the tray</span>
+  </section>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const dom = {
+    titlebar: $("titlebar"), scroll: $("scroll"),
+    hero: $("hero"), heroVideo: $("heroVideo"), heroGif: $("heroGif"), heroTile: $("heroTile"),
+    heroTitle: $("heroTitle"), heroMeta: $("heroMeta"), heroHint: $("heroHint"),
+    heroBadge: $("heroBadge"), heroBadgeText: $("heroBadgeText"),
+    pauseBtn: $("pauseBtn"), applyBtn: $("applyBtn"),
+    library: $("library"), grid: $("grid"), libCount: $("libCount"), search: $("search"),
+    addBtn: $("addBtn"), noResults: $("noResults"),
+    statusLeft: $("statusLeft"), statusRight: $("statusRight"),
+    settings: $("settings"), settingsBtn: $("settingsBtn"), themeBtn: $("themeBtn"),
+    themeSeg: $("themeSeg"), rotateSeg: $("rotateSeg"),
+    autostartSwitch: $("autostartSwitch"), pauseSwitch: $("pauseSwitch"),
+    fullscreenSwitch: $("fullscreenSwitch"), powerSwitch: $("powerSwitch"),
+    minBtn: $("minBtn"), maxBtn: $("maxBtn"), closeBtn: $("closeBtn"),
+    iconSun: $("iconSun"), iconMoon: $("iconMoon"),
+    iconMax: $("iconMax"), iconRestore: $("iconRestore"),
+    toast: $("toast"), quitBtn: $("quitBtn"),
+  };
+
+  const SVG_X = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  const SVG_PAGE = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M14 3v5h5" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+  const SVG_GIF = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="2.6" stroke="currentColor" stroke-width="1.4"/><path d="M3 15l4.6-4.2 3.4 3 3-3.4 6 5.6" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+
+  let S = {
+    theme: "dark", paused: false, autoPaused: false, autoPauseReason: null, currentPath: null, items: [],
+    rotate: { enabled: false, minutes: 30 }, autostart: false, pauseFullscreen: true, pauseOnPower: true,
+  };
+  let selected = null;
+  let maximized = false;
+  let toastTimer = 0;
+  let hoverTimer = 0;
+
+  const post = (msg) => { try { window.chrome.webview.postMessage(msg); } catch { } };
+  const log = (text) => post({ cmd: "log", value: String(text) });
+  window.addEventListener("error", (e) => log("page error: " + e.message));
+
+  if (window.chrome?.webview) {
+    window.chrome.webview.addEventListener("message", (e) => {
+      const m = e.data;
+      if (!m) return;
+      if (m.type === "state") { S = m.state; render(); }
+      else if (m.type === "toast") { toast(m.text); }
+      else if (m.type === "window") { maximized = !!m.maximized; syncWindowButtons(); }
+    });
+  }
+
+  /* ---------------- formatting ---------------- */
+
+  const KIND_LABEL = { video: "Video", gif: "GIF", page: "HTML page" };
+
+  function sizeLabel(bytes) {
+    if (!bytes) return "";
+    if (bytes < 1024 * 1024) return Math.max(1, Math.round(bytes / 1024)) + " KB";
+    const mb = bytes / (1024 * 1024);
+    if (mb >= 1024) return (mb / 1024).toFixed(2) + " GB";
+    if (mb >= 10) return Math.round(mb) + " MB";
+    return mb.toFixed(1) + " MB";
+  }
+
+  function metaLine(item) {
+    const bits = [KIND_LABEL[item.kind] || "Video"];
+    if (item.size) bits.push(sizeLabel(item.size));
+    if (!item.exists) bits.push("file missing");
+    return bits.join("  ·  ");
+  }
+
+  /* ---------------- render ---------------- */
+
+  function render() {
+    document.documentElement.dataset.theme = S.theme === "light" ? "light" : "dark";
+    dom.scroll.classList.toggle("is-welcome", S.items.length === 0);
+    dom.library.classList.toggle("is-hidden", S.items.length === 0);
+
+    const list = visibleItems();
+    if (!selected || !S.items.some((i) => i.path === selected)) {
+      selected = S.currentPath || S.items[0]?.path || null;
+    }
+
+    renderHero();
+    renderGrid(list);
+    syncChrome();
+    syncSettings();
+  }
+
+  function visibleItems() {
+    const q = dom.search.value.trim().toLowerCase();
+    if (!q) return S.items;
+    return S.items.filter((i) => i.name.toLowerCase().includes(q));
+  }
+
+  function renderHero() {
+    const item = S.items.find((i) => i.path === selected) || null;
+    const welcome = !item;
+
+    dom.hero.classList.toggle("hero--welcome", welcome);
+    dom.hero.classList.toggle("hero--calm", !welcome && (!item.exists || item.kind === "page"));
+    dom.heroHint.hidden = !welcome;
+
+    setHeroMedia(item);
+
+    if (welcome) {
+      dom.heroTitle.textContent = "Bring your desktop to life";
+      dom.heroMeta.textContent =
+        "Add a video, GIF or HTML page — or drop a file anywhere in this window.";
+      dom.applyBtn.textContent = "Add wallpaper";
+      dom.applyBtn.disabled = false;
+      dom.pauseBtn.hidden = true;
+      dom.heroBadge.hidden = true;
+      return;
+    }
+
+    const held = pauseHeld();
+
+    dom.heroTitle.textContent = item.name;
+    dom.heroMeta.textContent = metaLine(item);
+    dom.applyBtn.textContent = item.isCurrent ? "On desktop" : "Apply wallpaper";
+    dom.applyBtn.disabled = item.isCurrent || !item.exists;
+    dom.pauseBtn.hidden = !S.currentPath;
+    dom.pauseBtn.textContent = held ? "Play" : "Pause";
+    dom.pauseBtn.disabled = false;
+    dom.pauseBtn.title = held
+      ? "Play — keeps running even behind other apps"
+      : "Pause the wallpaper";
+    dom.heroBadge.hidden = !item.isCurrent;
+    dom.heroBadge.classList.toggle("is-paused", held);
+    dom.heroBadgeText.textContent = S.paused
+      ? "Paused"
+      : (S.autoPaused ? "Paused · " + autoReasonLabel() : "On desktop");
+  }
+
+  function autoReasonLabel() {
+    return S.autoPauseReason === "power" ? "battery" : "behind an app";
+  }
+
+  // paused by the user, or paused by the fullscreen watchdog
+  function pauseHeld() { return !!(S.paused || S.autoPaused); }
+
+  // The hero shows one still frame: a second live decode of the same file doubled the GPU
+  // cost of merely having the window open, and the desktop is where motion belongs.
+
+  function setHeroMedia(item) {
+    // no preview url (over the 40-folder cap) means no media element, same as the grid tile
+    const playable = !!(item && item.exists && item.preview && item.kind !== "page");
+
+    if (!playable) {
+      dom.heroVideo.classList.remove("on");
+      dom.heroVideo.removeAttribute("src");
+      dom.heroVideo.load();
+      dom.heroVideo.dataset.src = "";
+      dom.heroGif.classList.remove("on");
+      dom.heroGif.removeAttribute("src");
+      dom.heroTile.hidden = !item;
+      dom.heroTile.innerHTML = item && item.kind === "page" ? SVG_PAGE : SVG_GIF;
+      return;
+    }
+
+    dom.heroTile.hidden = true;
+
+    if (item.kind === "gif") {
+      dom.heroVideo.classList.remove("on");
+      if (dom.heroGif.getAttribute("src") !== item.preview) dom.heroGif.src = item.preview;
+      dom.heroGif.classList.add("on");
+      return;
+    }
+
+    dom.heroGif.classList.remove("on");
+    if (dom.heroVideo.dataset.src !== item.preview) {
+      dom.heroVideo.dataset.src = item.preview;
+      dom.heroVideo.src = item.preview;
+      dom.heroVideo.classList.add("on");
+      dom.heroVideo.addEventListener("loadedmetadata", () => {
+        try { dom.heroVideo.currentTime = Math.min(0.1, (dom.heroVideo.duration || 1) / 3); } catch { }
+      }, { once: true });
+    }
+  }
+
+  function select(path) {
+    if (selected === path) return;
+    selected = path;
+    renderHero();
+    for (const node of dom.grid.children) {
+      node.classList.toggle("is-selected", node.dataset.path === path);
+    }
+  }
+
+  function renderGrid(list) {
+    const grid = dom.grid;
+    grid.textContent = "";
+    dom.libCount.textContent = String(S.items.length);
+    dom.noResults.hidden = list.length > 0 || S.items.length === 0;
+
+    const fragment = document.createDocumentFragment();
+    for (const item of list) fragment.appendChild(card(item));
+    grid.appendChild(fragment);
+  }
+
+  function card(item) {
+    const node = document.createElement("article");
+    node.className = "card"
+      + (item.isCurrent ? " is-current" : "")
+      + (item.path === selected ? " is-selected" : "")
+      + (item.exists ? "" : " is-missing");
+    node.dataset.path = item.path;
+
+    const hit = document.createElement("button");
+    hit.type = "button";
+    hit.className = "card-hit";
+    hit.setAttribute("aria-label", `Show ${item.name}`);
+    hit.addEventListener("click", () => select(item.path));
+    hit.addEventListener("focus", () => select(item.path));
+    node.appendChild(hit);
+
+    const media = document.createElement("div");
+    media.className = "media";
+
+    const thumb = document.createElement("div");
+    thumb.className = "thumb";
+    media.appendChild(thumb);
+
+    if (item.isCurrent) {
+      const chip = document.createElement("span");
+      chip.className = "chip";
+      chip.textContent = "On desktop";
+      media.appendChild(chip);
+    }
+    if (!item.exists) {
+      const chip = document.createElement("span");
+      chip.className = "chip missing";
+      chip.textContent = "Missing";
+      media.appendChild(chip);
+    }
+
+    const remove = document.createElement("button");
+    remove.className = "card-x";
+    remove.type = "button";
+    remove.title = "Remove from library";
+    remove.setAttribute("aria-label", `Remove ${item.name} from library`);
+    remove.innerHTML = SVG_X;
+    remove.addEventListener("click", (e) => {
+      e.stopPropagation();
+      post({ cmd: "remove", path: item.path });
+    });
+    media.appendChild(remove);
+
+    if (item.exists && !item.isCurrent) {
+      const apply = document.createElement("button");
+      apply.className = "btn small card-apply";
+      apply.type = "button";
+      apply.textContent = "Apply";
+      apply.addEventListener("click", (e) => {
+        e.stopPropagation();
+        post({ cmd: "apply", path: item.path });
+      });
+      media.appendChild(apply);
+    }
+
+    const meta = document.createElement("div");
+    meta.className = "card-meta";
+    const name = document.createElement("div");
+    name.className = "card-name";
+    name.textContent = item.name;
+    name.title = item.path;
+    const sub = document.createElement("div");
+    sub.className = "card-sub";
+    sub.textContent = metaLine(item);
+    meta.append(name, sub);
+
+    node.append(media, meta);
+
+    paintThumb(thumb, item);
+
+    node.addEventListener("dblclick", () => {
+      if (item.exists && !item.isCurrent) post({ cmd: "apply", path: item.path });
+    });
+    node.addEventListener("mouseenter", () => {
+      clearTimeout(hoverTimer);
+      hoverTimer = setTimeout(() => previewOn(media, item), 140);
+    });
+    node.addEventListener("mouseleave", () => {
+      clearTimeout(hoverTimer);
+      previewOff(media);
+    });
+
+    return node;
+  }
+
+  /* ---------------- thumbnails ---------------- */
+
+  const posterCache = new Map();
+  const posterPending = new Set();
+  const queue = [];
+  let running = 0;
+
+  function enqueue(task) {
+    queue.push(task);
+    pump();
+  }
+
+  function pump() {
+    while (running < 2 && queue.length) {
+      const task = queue.shift();
+      running++;
+      task(() => { running--; pump(); });
+    }
+  }
+
+  function snapshot(src, w, h) {
+    const sw = src.videoWidth || src.naturalWidth;
+    const sh = src.videoHeight || src.naturalHeight;
+    if (!sw || !sh) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const scale = Math.max(w / sw, h / sh);
+    const dw = sw * scale;
+    const dh = sh * scale;
+    canvas.getContext("2d").drawImage(src, (w - dw) / 2, (h - dh) / 2, dw, dh);
+    return canvas;
+  }
+
+  function paintThumb(thumb, item) {
+    if (item.kind === "page") {
+      thumb.classList.add("tile");
+      thumb.innerHTML = SVG_PAGE;
+      return;
+    }
+    if (!item.exists || !item.preview) {
+      thumb.classList.add("tile");
+      thumb.innerHTML = SVG_GIF;
+      return;
+    }
+
+    const cached = posterCache.get(item.path);
+    if (cached) {
+      thumb.style.backgroundImage = `url("${cached}")`;
+      thumb.classList.add("ready");
+      return;
+    }
+    if (posterPending.has(item.path)) return;
+
+    posterPending.add(item.path);
+    thumb.classList.add("is-loading");
+
+    enqueue((done) => {
+      extractFrame(item, (url) => {
+        posterPending.delete(item.path);
+        if (url) posterCache.set(item.path, url);
+        if (!thumb.isConnected) return done();
+        thumb.classList.remove("is-loading");
+        if (url) {
+          thumb.style.backgroundImage = `url("${url}")`;
+          thumb.classList.add("ready");
+        } else {
+          fallbackFrame(thumb, item);
+        }
+        done();
+      });
+    });
+  }
+
+  function extractFrame(item, done) {
+    if (!item.preview) { log("no preview url for " + item.path); return done(null); }
+    if (item.kind === "gif") {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = snapshot(img, 384, 216);
+          done(canvas ? canvas.toDataURL("image/jpeg", 0.72) : null);
+        } catch { done(null); }
+      };
+      img.onerror = () => done(null);
+      img.src = item.preview;
+      return;
+    }
+
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    video.crossOrigin = "anonymous";
+    // done() must run once: the 8 s bail-out and a late loadeddata would otherwise both free the queue slot
+    let settled = false;
+    const finish = (url) => { if (!settled) { settled = true; done(url); } };
+    const bail = setTimeout(() => finish(null), 8000);
+
+    video.addEventListener("loadeddata", () => {
+      clearTimeout(bail);
+      try {
+        const canvas = snapshot(video, 384, 216);
+        finish(canvas ? canvas.toDataURL("image/jpeg", 0.72) : null);
+      } catch { finish(null); }
+    }, { once: true });
+    video.addEventListener("error", () => { clearTimeout(bail); log("video load failed: " + item.preview + " code=" + (video.error && video.error.code)); finish(null); }, { once: true });
+    video.src = item.preview;
+  }
+
+  // Cross-origin frames can be tainted; a paused video is the honest fallback.
+  function fallbackFrame(thumb, item) {
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+    video.src = item.preview;
+    video.addEventListener("loadedmetadata", () => {
+      try { video.currentTime = Math.min(0.2, (video.duration || 1) / 3); } catch { }
+    }, { once: true });
+    video.addEventListener("seeked", () => thumb.classList.add("ready"), { once: true });
+    video.addEventListener("error", () => {
+      thumb.classList.add("tile");
+      thumb.innerHTML = SVG_GIF;
+    }, { once: true });
+    thumb.appendChild(video);
+  }
+
+  function previewOn(media, item) {
+    if (!item.exists || !item.preview || item.kind === "page") return;
+    let node;
+    if (item.kind === "gif") {
+      node = document.createElement("img");
+      node.src = item.preview;
+    } else {
+      node = document.createElement("video");
+      node.muted = true;
+      node.loop = true;
+      node.playsInline = true;
+      node.autoplay = true;
+      node.src = item.preview;
+      node.play().catch(() => { });
+    }
+    node.className = "preview-live";
+    media.appendChild(node);
+  }
+
+  function previewOff(media) {
+    media.querySelector(".preview-live")?.remove();
+  }
+
+  /* ---------------- chrome ---------------- */
+
+  function syncChrome() {
+    dom.iconMoon.hidden = S.theme === "light";
+    dom.iconSun.hidden = S.theme !== "light";
+
+    const total = S.items.length;
+    const missing = S.items.filter((i) => !i.exists).length;
+    const rotate = S.rotate.enabled ? ` · rotating every ${rotateLabel(S.rotate.minutes)}` : "";
+    const held = !S.paused && S.autoPaused ? ` · paused ${autoReasonLabel()}` : "";
+    dom.statusLeft.textContent = total === 0
+      ? "No wallpapers yet"
+      : `${total} wallpaper${total === 1 ? "" : "s"}${missing ? ` · ${missing} missing` : ""}${rotate}${held}`;
+  }
+
+  function rotateLabel(minutes) {
+    if (minutes >= 60) return `${Math.round(minutes / 60)}h`;
+    return `${minutes}m`;
+  }
+
+  function syncSettings() {
+    for (const btn of dom.themeSeg.children) {
+      btn.setAttribute("aria-pressed", btn.dataset.v === S.theme ? "true" : "false");
+    }
+    const minutes = S.rotate.enabled ? S.rotate.minutes : 0;
+    for (const btn of dom.rotateSeg.children) {
+      btn.setAttribute("aria-pressed", Number(btn.dataset.m) === minutes ? "true" : "false");
+    }
+    dom.autostartSwitch.setAttribute("aria-checked", S.autostart ? "true" : "false");
+    dom.pauseSwitch.setAttribute("aria-checked", S.paused ? "true" : "false");
+    dom.fullscreenSwitch.setAttribute("aria-checked", S.pauseFullscreen ? "true" : "false");
+    dom.powerSwitch.setAttribute("aria-checked", S.pauseOnPower ? "true" : "false");
+  }
+
+  function syncWindowButtons() {
+    dom.iconMax.hidden = maximized;
+    dom.iconRestore.hidden = !maximized;
+    dom.maxBtn.title = maximized ? "Restore" : "Maximize";
+    dom.maxBtn.setAttribute("aria-label", maximized ? "Restore" : "Maximize");
+  }
+
+  function toast(text) {
+    dom.toast.textContent = text;
+    dom.toast.classList.add("on");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => dom.toast.classList.remove("on"), 2400);
+  }
+
+  function openSettings(open) {
+    dom.settings.hidden = !open;
+    dom.settingsBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  function closeSettings() { openSettings(false); }
+
+  /* ---------------- wire up ---------------- */
+
+  dom.applyBtn.addEventListener("click", () => {
+    if (!selected) post({ cmd: "pick" });
+    else post({ cmd: "apply", path: selected });
+  });
+
+  dom.pauseBtn.addEventListener("click", () => post({ cmd: "pause", paused: !pauseHeld() }));
+  dom.pauseSwitch.addEventListener("click", () => post({ cmd: "pause", paused: !S.paused }));
+  dom.addBtn.addEventListener("click", () => post({ cmd: "pick" }));
+
+  dom.search.addEventListener("input", () => {
+    renderGrid(visibleItems());
+    renderHero();
+  });
+
+  dom.themeBtn.addEventListener("click", () => {
+    post({ cmd: "theme", value: S.theme === "light" ? "dark" : "light" });
+  });
+
+  dom.themeSeg.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-v]");
+    if (btn) post({ cmd: "theme", value: btn.dataset.v });
+  });
+
+  dom.rotateSeg.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-m]");
+    if (!btn) return;
+    const minutes = Number(btn.dataset.m);
+    post({ cmd: "rotate", enabled: minutes > 0, minutes: minutes || 30 });
+  });
+
+  dom.autostartSwitch.addEventListener("click", () => {
+    post({ cmd: "autostart", enabled: !S.autostart });
+  });
+
+  dom.fullscreenSwitch.addEventListener("click", () => {
+    post({ cmd: "fullscreenPause", enabled: !S.pauseFullscreen });
+  });
+
+  dom.powerSwitch.addEventListener("click", () => {
+    post({ cmd: "powerPause", enabled: !S.pauseOnPower });
+  });
+
+  dom.settingsBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openSettings(dom.settings.hidden);
+  });
+
+  dom.settings.addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener("click", () => closeSettings());
+
+  dom.minBtn.addEventListener("click", () => post({ cmd: "minimize" }));
+  dom.maxBtn.addEventListener("click", () => post({ cmd: "maximize" }));
+  dom.closeBtn.addEventListener("click", () => post({ cmd: "close" }));
+  dom.quitBtn.addEventListener("click", () => post({ cmd: "quit" }));
+
+  // frame drag: everything in the title bar except its buttons
+  dom.titlebar.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest("button")) return;
+    post({ cmd: "drag" });
+  });
+
+  dom.titlebar.addEventListener("dblclick", (e) => {
+    if (e.target.closest("button")) return;
+    post({ cmd: "maximize" });
+  });
+
+  document.addEventListener("keydown", (e) => {
+    const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+    if (e.key === "Escape") {
+      closeSettings();
+      if (typing) e.target.blur();
+      return;
+    }
+    if (typing) return;
+
+    if (e.ctrlKey && e.key.toLowerCase() === "o") {
+      e.preventDefault();
+      post({ cmd: "pick" });
+      return;
+    }
+
+    if (e.code === "Space") {
+      if (e.target.closest("button")) return; // the button's own activation wins
+      e.preventDefault();
+      if (S.currentPath) post({ cmd: "pause", paused: !pauseHeld() });
+      return;
+    }
+
+    if (e.key === "Enter" && selected) {
+      if (e.target.closest("button")) return; // the button's own activation wins
+      e.preventDefault();
+      post({ cmd: "apply", path: selected });
+      return;
+    }
+
+    if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey) {
+      const item = S.items[Number(e.key) - 1];
+      if (item) post({ cmd: "apply", path: item.path });
+    }
+  });
+
+  syncWindowButtons();
+  post({ cmd: "ready" });
+})();
+</script>
+</body>
+</html>

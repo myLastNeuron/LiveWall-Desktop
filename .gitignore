@@ -1,0 +1,22 @@
+# Build output
+bin/
+obj/
+dist/
+installer/payload/
+installer/payload.zip
+
+# IDE / user settings
+.vs/
+.vscode/
+*.user
+*.suo
+
+# OS noise
+Thumbs.db
+desktop.ini
+
+# generated screenshots
+wallpaper-window.png
+
+# pi /summary
+PROJECT_SUMMARY.md
