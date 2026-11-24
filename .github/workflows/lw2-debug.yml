@@ -2,6 +2,9 @@ name: LW-2 installer diagnostic
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - fix/lw-2-runtime-probe
 
 permissions:
   contents: read
