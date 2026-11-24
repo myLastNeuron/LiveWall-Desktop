@@ -89,12 +89,13 @@ public sealed class InstallOwnershipTests : IDisposable
         InstallOwnership.WriteMarker(dir, "1.0.0", new[] { "LiveWall.exe", @"assets\ui.html" }, null);
 
         var marker = InstallOwnership.ReadMarker(dir);
+        var log = new List<string>();
         Assert.NotNull(marker);
-        Assert.True(InstallOwnership.DeleteOwnedFiles(dir, marker));
+        Assert.True(InstallOwnership.DeleteOwnedFiles(dir, marker, log.Add), string.Join(Environment.NewLine, log));
 
-        Assert.False(File.Exists(Path.Combine(dir, "LiveWall.exe")));
-        Assert.False(File.Exists(Path.Combine(dir, "assets", "ui.html")));
-        Assert.False(File.Exists(InstallOwnership.MarkerPath(dir)));
+        Assert.False(File.Exists(Path.Combine(dir, "LiveWall.exe")), string.Join(Environment.NewLine, log));
+        Assert.False(File.Exists(Path.Combine(dir, "assets", "ui.html")), string.Join(Environment.NewLine, log));
+        Assert.False(File.Exists(InstallOwnership.MarkerPath(dir)), string.Join(Environment.NewLine, log));
         Assert.Equal("sentinel", File.ReadAllText(Path.Combine(dir, "keep-me.txt")));
         Assert.Equal("nested sentinel", File.ReadAllText(Path.Combine(dir, "assets", "personal.txt")));
         Assert.True(Directory.Exists(dir));

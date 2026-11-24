@@ -179,7 +179,12 @@ internal static class InstallOwnership
             if (string.Equals(full, markerPath, StringComparison.OrdinalIgnoreCase)) continue;
             try
             {
-                if (File.Exists(full)) File.Delete(full);
+                if (!File.Exists(full))
+                {
+                    log?.Invoke("file already absent: " + full);
+                    continue;
+                }
+                File.Delete(full);
                 log?.Invoke("removed file: " + full);
             }
             catch (Exception ex)
