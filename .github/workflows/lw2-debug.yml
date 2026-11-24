@@ -42,6 +42,26 @@ jobs:
             $u = Start-Process msiexec.exe -ArgumentList '/x', $product.IdentifyingNumber, '/qn', '/norestart', '/l*v', $msiLog -Wait -PassThru
             "uninstall $($product.Name) [$($product.IdentifyingNumber)] exit $($u.ExitCode)"
           }
+          "--- registry removal of 8.x product registrations ---"
+          $pattern = '^Microsoft (Windows Desktop Runtime|\.NET Runtime) - 8\.'
+          foreach ($arpRoot in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall') {
+            Get-ChildItem $arpRoot -ErrorAction SilentlyContinue | ForEach-Object {
+              $props = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+              if ($props.DisplayName -match $pattern) { Remove-Item $_.PSPath -Recurse -Force -ErrorAction Continue; "removed ARP $($props.DisplayName)" }
+            }
+          }
+          foreach ($sid in 'S-1-5-18') {
+            $productsRoot = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\$sid\Products"
+            Get-ChildItem $productsRoot -ErrorAction SilentlyContinue | ForEach-Object {
+              $props = Get-ItemProperty (Join-Path $_.PSPath 'InstallProperties') -ErrorAction SilentlyContinue
+              if ($props.DisplayName -match $pattern) { Remove-Item $_.PSPath -Recurse -Force -ErrorAction Continue; "removed UserData $($props.DisplayName)" }
+            }
+          }
+          $classesRoot = 'HKLM:\SOFTWARE\Classes\Installer\Products'
+          Get-ChildItem $classesRoot -ErrorAction SilentlyContinue | ForEach-Object {
+            $props = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+            if ($props.ProductName -match $pattern) { Remove-Item $_.PSPath -Recurse -Force -ErrorAction Continue; "removed Classes $($props.ProductName)" }
+          }
           "--- 8.x ARP entries after Win32_Product uninstall ---"
           $roots2 = @(
             'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
