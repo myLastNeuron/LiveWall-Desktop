@@ -30,16 +30,13 @@ jobs:
           }
           "--- runtimes before ---"
           & dotnet --list-runtimes
-          "--- uninstall 8.x MSI products ---"
-          $roots = @(
-            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
-            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
-          )
-          $products = foreach ($root in $roots) {
+          "--- uninstall 8.x MSI products (real product codes) ---"
+          $products = foreach ($sid in 'S-1-5-18', 'S-1-5-21-0-0-0-1000') {
+            $root = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\$sid\Products"
             Get-ChildItem $root -ErrorAction SilentlyContinue | ForEach-Object {
-              $props = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+              $props = Get-ItemProperty (Join-Path $_.PSPath 'InstallProperties') -ErrorAction SilentlyContinue
               if ($props.DisplayName -match '^Microsoft (Windows Desktop Runtime|\.NET Runtime) - 8\.') {
-                [pscustomobject]@{ Code = $_.PSChildName; Name = $props.DisplayName }
+                [pscustomobject]@{ Code = $props.ProductCode; Name = $props.DisplayName; Sid = $sid }
               }
             }
           }
@@ -49,8 +46,11 @@ jobs:
             $u = Start-Process msiexec.exe -ArgumentList '/x', $product.Code, '/qn', '/norestart', '/l*v', $msiLog -Wait -PassThru
             "uninstall $($product.Name) [$($product.Code)] exit $($u.ExitCode)"
             if (Test-Path $msiLog) { Get-Content $msiLog -Tail 15 }
-            $regPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($product.Code)"
-            "registry key exists after uninstall: $(Test-Path $regPath)"
+            $sidPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\$($product.Sid)\Products"
+            $still = Get-ChildItem $sidPath -ErrorAction SilentlyContinue | Where-Object {
+              (Get-ItemProperty (Join-Path $_.PSPath 'InstallProperties') -ErrorAction SilentlyContinue).ProductCode -eq $product.Code
+            }
+            "MSI product still registered after uninstall: $([bool]$still)"
           }
           "--- uninstall 8.x Burn bundles ---"
           $bundles = Get-ChildItem (Join-Path $env:ProgramData 'Package Cache') -Recurse -Filter '*-8.*-win-x64.exe' -ErrorAction SilentlyContinue |
