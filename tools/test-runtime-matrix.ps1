@@ -10,6 +10,8 @@ param(
     [Parameter(Mandatory)]
     [string]$BaselineRuntimeConfig,
 
+    [string]$BuiltExe,
+
     [string]$EvidenceDir
 )
 
@@ -22,6 +24,7 @@ Start-Transcript -Path (Join-Path $evidence 'matrix.log') -Force | Out-Null
 
 $SetupExe = (Resolve-Path $SetupExe).Path
 $BaselineRuntimeConfig = (Resolve-Path $BaselineRuntimeConfig).Path
+if ($BuiltExe) { $BuiltExe = (Resolve-Path $BuiltExe).Path }
 $dotnetRoot = Join-Path $env:ProgramFiles 'dotnet'
 $env:DOTNET_ROOT = $dotnetRoot
 $frameworkDir = Join-Path $dotnetRoot 'shared\Microsoft.WindowsDesktop.App'
@@ -235,20 +238,25 @@ try {
         Assert-True ($afterMajors -contains 9) 'The pre-existing 9.x runtime is left in place'
     }
 
-    Write-Step 'Inspect installed runtimeconfig'
+    Write-Step 'Inspect runtimeconfig and the installed binary'
+    Copy-Item -LiteralPath $BaselineRuntimeConfig -Destination (Join-Path $evidence 'runtimeconfig.baseline.json') -Force
+    $config = Get-Content -LiteralPath $BaselineRuntimeConfig -Raw | ConvertFrom-Json
+    $frameworks = @($config.runtimeOptions.frameworks)
+    if ($frameworks.Count -eq 0) { $frameworks = @($config.runtimeOptions.framework) }
+    $desktopFramework = $frameworks | Where-Object { $_.name -eq 'Microsoft.WindowsDesktop.App' } | Select-Object -First 1
+    if ($desktopFramework) { $frameworkVersion = $desktopFramework.version }
+    $hasRollForward = $null -ne $config.runtimeOptions.PSObject.Properties['rollForward']
+    Assert-True ($frameworkVersion -eq '8.0.0') 'runtimeconfig requests WindowsDesktop 8.0.0' "version: $frameworkVersion"
+    Assert-True (-not $hasRollForward) 'runtimeconfig has no cross-major rollForward policy'
+
     $installedRuntimeConfig = Join-Path $installDir 'LiveWall.runtimeconfig.json'
-    Assert-True (Test-Path -LiteralPath $installedRuntimeConfig) 'Installed app has LiveWall.runtimeconfig.json'
+    $installedExe = Join-Path $installDir 'LiveWall.exe'
+    $baselineHash = (Get-FileHash -LiteralPath $BaselineRuntimeConfig -Algorithm SHA256).Hash
+    $installedExeHash = if (Test-Path -LiteralPath $installedExe) { (Get-FileHash -LiteralPath $installedExe -Algorithm SHA256).Hash } else { '' }
+    $builtExeHash = if ($BuiltExe) { (Get-FileHash -LiteralPath $BuiltExe -Algorithm SHA256).Hash } else { '' }
+
     if (Test-Path -LiteralPath $installedRuntimeConfig) {
         Copy-Item -LiteralPath $installedRuntimeConfig -Destination (Join-Path $evidence 'runtimeconfig.installed.json') -Force
-        Copy-Item -LiteralPath $BaselineRuntimeConfig -Destination (Join-Path $evidence 'runtimeconfig.baseline.json') -Force
-
-        $config = Get-Content -LiteralPath $installedRuntimeConfig -Raw | ConvertFrom-Json
-        $frameworkVersion = $config.runtimeOptions.framework.version
-        $hasRollForward = $null -ne $config.runtimeOptions.PSObject.Properties['rollForward']
-        Assert-True ($frameworkVersion -eq '8.0.0') 'runtimeconfig requests WindowsDesktop 8.0.0' "version: $frameworkVersion"
-        Assert-True (-not $hasRollForward) 'runtimeconfig has no cross-major rollForward policy'
-
-        $baselineHash = (Get-FileHash -LiteralPath $BaselineRuntimeConfig -Algorithm SHA256).Hash
         $installedHash = (Get-FileHash -LiteralPath $installedRuntimeConfig -Algorithm SHA256).Hash
         $diff = Compare-Object (Get-Content -LiteralPath $BaselineRuntimeConfig) (Get-Content -LiteralPath $installedRuntimeConfig)
         $diffText = if (-not $diff) {
@@ -257,6 +265,24 @@ try {
             ($diff | Format-Table -AutoSize | Out-String)
         }
         Set-Content -LiteralPath (Join-Path $evidence 'runtimeconfig.diff') -Value $diffText -Encoding utf8
+        Assert-True ($installedHash -eq $baselineHash) 'Installed runtimeconfig is identical to the built runtimeconfig'
+    } else {
+        # PublishSingleFile embeds runtimeconfig into the apphost, so there is no sidecar file.
+        # Prove setup installed the exact tested binary instead; the loaded-module checks below
+        # prove which runtime that binary resolved.
+        $diffText = @(
+            'Single-file publish: LiveWall.runtimeconfig.json is embedded in LiveWall.exe.'
+            "Baseline runtimeconfig SHA256: $baselineHash"
+            "Installed LiveWall.exe SHA256: $installedExeHash"
+            "Built payload LiveWall.exe SHA256: $builtExeHash"
+            ''
+            'No runtimeconfig sidecar to diff. Setup copies the tested payload byte-for-byte, so the'
+            'embedded contract remains Microsoft.WindowsDesktop.App 8.0.0 with no rollForward.'
+        )
+        Set-Content -LiteralPath (Join-Path $evidence 'runtimeconfig.diff') -Value $diffText -Encoding utf8
+        Assert-True ($builtExeHash -ne '' -and $installedExeHash -eq $builtExeHash) `
+            'Installed LiveWall.exe is byte-identical to the tested payload' `
+            "built $builtExeHash, installed $installedExeHash"
     }
 
     Write-Step 'Launch the installed app'

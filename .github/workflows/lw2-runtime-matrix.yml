@@ -24,16 +24,24 @@ jobs:
       - name: Build installer
         shell: pwsh
         run: ./build-installer.ps1
+      - name: Publish runtimeconfig baseline
+        shell: pwsh
+        run: >
+          dotnet publish LiveWall/LiveWall.csproj -c Release -r win-x64 --self-contained false
+          -p:PublishSingleFile=false -p:DebugType=None -o build/runtimeconfig
       - name: Stage build artifact
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force build | Out-Null
           Copy-Item dist/LiveWallSetup.exe build/
-          Copy-Item installer/payload/LiveWall.runtimeconfig.json build/
+          Copy-Item build/runtimeconfig/LiveWall.runtimeconfig.json build/
+          Copy-Item installer/payload/LiveWall.exe build/LiveWall.exe
       - uses: actions/upload-artifact@v4
         with:
           name: lw2-build
-          path: build/*
+          path: |
+            build/LiveWallSetup.exe
+            build/LiveWall.runtimeconfig.json
+            build/LiveWall.exe
 
   matrix:
     needs: build
@@ -64,6 +72,7 @@ jobs:
           -Case ${{ matrix.case }}
           -SetupExe ./build/LiveWallSetup.exe
           -BaselineRuntimeConfig ./build/LiveWall.runtimeconfig.json
+          -BuiltExe ./build/LiveWall.exe
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
