@@ -1,0 +1,82 @@
+name: LW-2 runtime probe matrix
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/lw-2-runtime-probe
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Unit tests
+        shell: pwsh
+        run: dotnet test LiveWall.Tests/LiveWall.Tests.csproj -c Release --logger "console;verbosity=normal"
+      - name: Build installer
+        shell: pwsh
+        run: ./build-installer.ps1
+      - name: Publish runtimeconfig baseline
+        shell: pwsh
+        run: >
+          dotnet publish LiveWall/LiveWall.csproj -c Release -r win-x64 --self-contained false
+          -p:PublishSingleFile=false -p:DebugType=None -o build/runtimeconfig
+      - name: Stage build artifact
+        shell: pwsh
+        run: |
+          Copy-Item dist/LiveWallSetup.exe build/
+          Copy-Item build/runtimeconfig/LiveWall.runtimeconfig.json build/
+          Copy-Item installer/payload/LiveWall.exe build/LiveWall.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lw2-build
+          path: |
+            build/LiveWallSetup.exe
+            build/LiveWall.runtimeconfig.json
+            build/LiveWall.exe
+
+  matrix:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-2022
+          - windows-2025
+        case:
+          - dotnet8-only
+          - dotnet9-only
+          - dotnet10-only
+          - none
+          - dotnet8-and-9
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: lw2-build
+          path: build
+      - name: Run runtime case
+        shell: pwsh
+        run: >
+          ./tools/test-runtime-matrix.ps1
+          -Case ${{ matrix.case }}
+          -SetupExe ./build/LiveWallSetup.exe
+          -BaselineRuntimeConfig ./build/LiveWall.runtimeconfig.json
+          -BuiltExe ./build/LiveWall.exe
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lw2-evidence-${{ matrix.os }}-${{ matrix.case }}
+          path: artifacts/lw2-runtime/${{ matrix.case }}
+          if-no-files-found: warn

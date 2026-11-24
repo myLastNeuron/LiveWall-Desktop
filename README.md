@@ -27,8 +27,9 @@ Install.
 A few things the setup takes care of:
 
 - Installs per user (default `%LOCALAPPDATA%\Programs\LiveWall`), so there is no admin prompt.
-- Downloads only what the PC is missing: the .NET 8 Desktop Runtime (it asks for admin once)
-  and the WebView2 Runtime. If they are already there, it skips them.
+- Requires the .NET 8 Desktop Runtime. Downloads it only when no 8.x runtime is present (it
+  asks for admin once); a 9.x or 10.x runtime is not a substitute. It also installs the
+  WebView2 Runtime when missing. See [runtime support](docs/runtime-support.md).
 - Adds a Start Menu shortcut, an optional desktop shortcut, and an entry in Windows
   *Installed apps*. `Uninstall.exe` ends up in the install folder.
 
@@ -89,7 +90,7 @@ itself is self-contained so it runs on a PC with no .NET installed.
 
 - The wallpaper covers the primary monitor only, scaled with `object-fit: cover`.
 - Audio is muted.
-- Windows x64 only.
+- Windows x64 only, with the .NET 8 Desktop Runtime (see [runtime support](docs/runtime-support.md)).
 
 ## Project layout
 

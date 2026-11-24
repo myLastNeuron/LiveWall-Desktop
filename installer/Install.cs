@@ -38,10 +38,16 @@ internal static class Install
         ExtractPayload(dir);
 
         // Dependencies the app needs that this PC may not have yet.
-        if (!HasDesktopRuntime())
+        if (!DesktopRuntime.IsSatisfied(DesktopRuntime.DefaultRoots()))
         {
             report(10, "Downloading .NET 8 Desktop Runtime...");
             await InstallDownload(DotNetUrl, ".exe", "/install /quiet /norestart", report, 10, 70, elevate: true);
+
+            // Do not continue into a broken launch if the dependency installer lied.
+            if (!DesktopRuntime.IsSatisfied(DesktopRuntime.DefaultRoots()))
+                throw new InvalidOperationException(
+                    "The .NET 8 Desktop Runtime installer finished, but no 8.x runtime was found.\n\n" +
+                    $"Install it manually, then run this setup again:\n{DotNetUrl}");
         }
 
         if (!HasWebView2())
@@ -136,26 +142,6 @@ internal static class Install
     {
         using var id = WindowsIdentity.GetCurrent();
         return new WindowsPrincipal(id).IsInRole(WindowsBuiltInRole.Administrator);
-    }
-
-    /// <summary>LiveWall targets net8.0-windows, but a newer major runtime runs it too.</summary>
-    private static bool HasDesktopRuntime()
-    {
-        var roots = new[]
-        {
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "dotnet"),
-            Environment.GetEnvironmentVariable("DOTNET_ROOT") ?? "",
-        };
-        return roots.Any(r => r.Length > 0 && HasMajor(Path.Combine(r, "shared", "Microsoft.WindowsDesktop.App"), 8));
-    }
-
-    private static bool HasMajor(string dir, int major)
-    {
-        if (!Directory.Exists(dir)) return false;
-        foreach (var sub in Directory.EnumerateDirectories(dir))
-            if (Version.TryParse(Path.GetFileName(sub).Split('-')[0], out var v) && v.Major >= major) return true;
-        return false;
     }
 
     private static bool HasWebView2()
