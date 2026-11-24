@@ -52,8 +52,27 @@ jobs:
             $regPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($product.Code)"
             "registry key exists after uninstall: $(Test-Path $regPath)"
           }
-          "--- dotnet registration after uninstall ---"
-          & reg query 'HKLM\SOFTWARE\dotnet\Setup\InstalledVersions\x64' /s 2>&1
+          "--- uninstall 8.x Burn bundles ---"
+          $bundles = Get-ChildItem (Join-Path $env:ProgramData 'Package Cache') -Recurse -Filter '*-8.*-win-x64.exe' -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^(windowsdesktop|dotnet)-runtime-8\.' }
+          $bundles | Select-Object FullName
+          foreach ($bundle in $bundles) {
+            $blog = Join-Path $env:RUNNER_TEMP ("bundle-uninstall-" + $bundle.Name + ".log")
+            $u = Start-Process -FilePath $bundle.FullName -ArgumentList '/uninstall', '/quiet', '/norestart', '/log', $blog -Wait -PassThru
+            "bundle uninstall $($bundle.Name) exit $($u.ExitCode)"
+            if (Test-Path $blog) { Select-String -Path $blog -Pattern 'Detect complete|exit code|i007|i500' | Select-Object -Last 5 | ForEach-Object { $_.Line } }
+          }
+          "--- 8.x ARP entries after bundle uninstall ---"
+          $roots2 = @(
+            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+          )
+          foreach ($root in $roots2) {
+            Get-ChildItem $root -ErrorAction SilentlyContinue | ForEach-Object {
+              $props = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+              if ($props.DisplayName -match '^Microsoft (Windows Desktop Runtime|\.NET Runtime) - 8\.') { "$($_.PSChildName) $($props.DisplayName)" }
+            }
+          }
           "--- download ---"
           $exe = Join-Path $env:RUNNER_TEMP 'dotnet8.exe'
           Invoke-WebRequest 'https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe' -OutFile $exe -UseBasicParsing
