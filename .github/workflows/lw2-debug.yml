@@ -45,9 +45,15 @@ jobs:
           }
           $products | Format-Table -AutoSize
           foreach ($product in $products) {
-            $u = Start-Process msiexec.exe -ArgumentList '/x', $product.Code, '/qn', '/norestart' -Wait -PassThru
+            $msiLog = Join-Path $env:RUNNER_TEMP ("uninstall-" + ($product.Code -replace '[{}]', '') + ".log")
+            $u = Start-Process msiexec.exe -ArgumentList '/x', $product.Code, '/qn', '/norestart', '/l*v', $msiLog -Wait -PassThru
             "uninstall $($product.Name) [$($product.Code)] exit $($u.ExitCode)"
+            if (Test-Path $msiLog) { Get-Content $msiLog -Tail 15 }
+            $regPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$($product.Code)"
+            "registry key exists after uninstall: $(Test-Path $regPath)"
           }
+          "--- dotnet registration after uninstall ---"
+          & reg query 'HKLM\SOFTWARE\dotnet\Setup\InstalledVersions\x64' /s 2>&1
           "--- download ---"
           $exe = Join-Path $env:RUNNER_TEMP 'dotnet8.exe'
           Invoke-WebRequest 'https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe' -OutFile $exe -UseBasicParsing
