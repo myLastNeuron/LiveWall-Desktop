@@ -162,9 +162,9 @@ internal static class InstallOwnership
         try
         {
             foreach (var file in marker.Files)
-                files.Add(RelativePath(dir, file, allowRoot: false));
+                files.Add(ResolvePath(dir, file, allowRoot: false));
             foreach (var child in marker.Directories)
-                dirs.Add(RelativePath(dir, child, allowRoot: true));
+                dirs.Add(ResolvePath(dir, child, allowRoot: true));
         }
         catch (Exception ex)
         {
@@ -266,6 +266,9 @@ internal static class InstallOwnership
         if (relative == ".") return relative;
         return relative;
     }
+
+    private static string ResolvePath(string dir, string value, bool allowRoot) =>
+        Path.GetFullPath(Path.Combine(dir, RelativePath(dir, value, allowRoot)));
 
     private static List<string> NormalizeRelativeList(string dir, IEnumerable<string>? values, bool allowRoot)
     {
