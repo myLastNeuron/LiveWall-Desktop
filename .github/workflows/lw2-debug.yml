@@ -30,27 +30,28 @@ jobs:
           }
           "--- runtimes before ---"
           & dotnet --list-runtimes
-          "--- uninstall 8.x MSI products (real product codes) ---"
-          $products = foreach ($sid in 'S-1-5-18', 'S-1-5-21-0-0-0-1000') {
-            $root = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\$sid\Products"
-            Get-ChildItem $root -ErrorAction SilentlyContinue | ForEach-Object {
-              $props = Get-ItemProperty (Join-Path $_.PSPath 'InstallProperties') -ErrorAction SilentlyContinue
-              if ($props.DisplayName -match '^Microsoft (Windows Desktop Runtime|\.NET Runtime) - 8\.') {
-                [pscustomobject]@{ Code = $props.ProductCode; Name = $props.DisplayName; Sid = $sid }
-              }
-            }
-          }
+          "--- uninstall 8.x MSI products (Win32_Product) ---"
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          $products = Get-CimInstance Win32_Product -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^Microsoft (Windows Desktop Runtime|\.NET Runtime) - 8\.' } |
+            Select-Object Name, IdentifyingNumber
+          "Win32_Product query took $($sw.Elapsed.TotalSeconds)s"
           $products | Format-Table -AutoSize
           foreach ($product in $products) {
-            $msiLog = Join-Path $env:RUNNER_TEMP ("uninstall-" + ($product.Code -replace '[{}]', '') + ".log")
-            $u = Start-Process msiexec.exe -ArgumentList '/x', $product.Code, '/qn', '/norestart', '/l*v', $msiLog -Wait -PassThru
-            "uninstall $($product.Name) [$($product.Code)] exit $($u.ExitCode)"
-            if (Test-Path $msiLog) { Get-Content $msiLog -Tail 15 }
-            $sidPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\$($product.Sid)\Products"
-            $still = Get-ChildItem $sidPath -ErrorAction SilentlyContinue | Where-Object {
-              (Get-ItemProperty (Join-Path $_.PSPath 'InstallProperties') -ErrorAction SilentlyContinue).ProductCode -eq $product.Code
+            $msiLog = Join-Path $env:RUNNER_TEMP ("uninstall-" + ($product.IdentifyingNumber -replace '[{}]', '') + ".log")
+            $u = Start-Process msiexec.exe -ArgumentList '/x', $product.IdentifyingNumber, '/qn', '/norestart', '/l*v', $msiLog -Wait -PassThru
+            "uninstall $($product.Name) [$($product.IdentifyingNumber)] exit $($u.ExitCode)"
+          }
+          "--- 8.x ARP entries after Win32_Product uninstall ---"
+          $roots2 = @(
+            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+          )
+          foreach ($root in $roots2) {
+            Get-ChildItem $root -ErrorAction SilentlyContinue | ForEach-Object {
+              $props = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+              if ($props.DisplayName -match '^Microsoft (Windows Desktop Runtime|\.NET Runtime) - 8\.') { "$($_.PSChildName) $($props.DisplayName)" }
             }
-            "MSI product still registered after uninstall: $([bool]$still)"
           }
           "--- uninstall 8.x Burn bundles ---"
           $bundles = Get-ChildItem (Join-Path $env:ProgramData 'Package Cache') -Recurse -Filter '*-8.*-win-x64.exe' -ErrorAction SilentlyContinue |
