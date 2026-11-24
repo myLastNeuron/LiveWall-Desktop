@@ -78,6 +78,13 @@ jobs:
           Invoke-WebRequest 'https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe' -OutFile $exe -UseBasicParsing
           Get-Item $exe | Select-Object Name, Length, VersionInfo
           Get-FileHash $exe -Algorithm SHA256
+          "--- uninstall via downloaded bundle ---"
+          $ulog = Join-Path $env:RUNNER_TEMP 'dotnet8-uninstall.log'
+          $u = Start-Process -FilePath $exe -ArgumentList '/uninstall', '/quiet', '/norestart', '/log', $ulog -Wait -PassThru
+          "bundle uninstall exit code: $($u.ExitCode)"
+          if (Test-Path $ulog) { Select-String -Path $ulog -Pattern 'Detected package|Detect complete|Exit code|i007|i500' | Select-Object -Last 10 | ForEach-Object { $_.Line } }
+          "--- runtimes after bundle uninstall ---"
+          & dotnet --list-runtimes
           "--- install ---"
           $log = Join-Path $env:RUNNER_TEMP 'dotnet8-install.log'
           $p = Start-Process -FilePath $exe -ArgumentList '/install', '/quiet', '/norestart', '/log', $log -Wait -PassThru
