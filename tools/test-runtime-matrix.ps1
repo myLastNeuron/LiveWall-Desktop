@@ -126,6 +126,54 @@ function Ensure-DesktopRuntime([int]$Major) {
     }
 }
 
+# The hosted image installs .NET 8 through MSI bundles. Deleting files is not enough:
+# Burn still detects the 8.x packages as Present and the official installer no-ops.
+# On this disposable runner, remove the 8.x product registrations so the machine
+# genuinely looks like a clean 9/10-only (or runtime-free) PC.
+function Remove-RuntimeRegistrations([int]$Major) {
+    $pattern = "^Microsoft (Windows Desktop Runtime|\.NET Runtime) - $Major\."
+    $removed = [Collections.Generic.List[string]]::new()
+
+    foreach ($arpRoot in @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+    )) {
+        Get-ChildItem $arpRoot -ErrorAction SilentlyContinue | ForEach-Object {
+            $props = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+            if ($props.DisplayName -match $pattern) {
+                Remove-Item $_.PSPath -Recurse -Force -ErrorAction Stop
+                $removed.Add("ARP: $($props.DisplayName)")
+            }
+        }
+    }
+
+    $userData = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData'
+    Get-ChildItem $userData -ErrorAction SilentlyContinue | ForEach-Object {
+        $productsRoot = Join-Path $_.PSPath 'Products'
+        Get-ChildItem $productsRoot -ErrorAction SilentlyContinue | ForEach-Object {
+            $props = Get-ItemProperty (Join-Path $_.PSPath 'InstallProperties') -ErrorAction SilentlyContinue
+            if ($props.DisplayName -match $pattern) {
+                Remove-Item $_.PSPath -Recurse -Force -ErrorAction Stop
+                $removed.Add("UserData: $($props.DisplayName)")
+            }
+        }
+    }
+
+    $classes = 'HKLM:\SOFTWARE\Classes\Installer\Products'
+    Get-ChildItem $classes -ErrorAction SilentlyContinue | ForEach-Object {
+        $props = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+        if ($props.ProductName -match $pattern) {
+            Remove-Item $_.PSPath -Recurse -Force -ErrorAction Stop
+            $removed.Add("Classes: $($props.ProductName)")
+        }
+    }
+
+    foreach ($entry in $removed) { Write-Host "Removed registration $entry" }
+    if ($removed.Count -gt 0) {
+        Add-Content -LiteralPath (Join-Path $evidence 'removed-registrations.txt') -Value $removed -Encoding utf8
+    }
+}
+
 function Remove-RuntimeVersion($Version) {
     for ($attempt = 1; $attempt -le 3; $attempt++) {
         try {
@@ -147,6 +195,9 @@ function Set-RuntimeState {
     }
     foreach ($version in Get-CoreVersions) {
         if ($version.Major -notin $desired) { Remove-RuntimeVersion $version }
+    }
+    foreach ($major in 8, 9, 10, 11) {
+        if ($major -notin $desired) { Remove-RuntimeRegistrations $major }
     }
 }
 
@@ -424,5 +475,7 @@ finally {
 }
 
 if ($failures.Count -gt 0 -or $fatal) {
-    throw "LW-2 runtime case '$Case' failed: $($failures.Count) assertion(s)$(if ($fatal) { ' plus a fatal error' })"
+    Write-Error "LW-2 runtime case '$Case' failed: $($failures.Count) assertion(s)$(if ($fatal) { ' plus a fatal error' })"
+    exit 1
 }
+exit 0
