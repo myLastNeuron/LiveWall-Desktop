@@ -229,7 +229,7 @@ function Save-RuntimeSnapshot([string]$Name) {
 try {
     Write-Step 'Environment'
     $os = [Environment]::OSVersion.VersionString
-    $image = "$env:RUNNER_IMAGE_OS $env:RUNNER_IMAGE_VERSION"
+    $image = if ($env:ImageOS) { "$env:ImageOS $env:ImageVersion" } else { "$env:RUNNER_OS $env:RUNNER_IMAGE_VERSION" }
     Write-Host "Runner: $env:RUNNER_OS / $image"
     Write-Host $os
     @(
@@ -393,8 +393,12 @@ try {
         if ($alive) {
             try {
                 $modulePaths = $appProcess.Modules | ForEach-Object { $_.FileName }
-                $coreclrPath = $modulePaths | Where-Object { $_ -match 'Microsoft\.NETCore\.App\\8\.' } | Select-Object -First 1
-                $winFormsPath = $modulePaths | Where-Object { $_ -match 'Microsoft\.WindowsDesktop\.App\\8\.' } | Select-Object -First 1
+                $coreclrPath = $modulePaths | Where-Object {
+                    (Split-Path $_ -Leaf) -eq 'coreclr.dll' -and $_ -match 'Microsoft\.NETCore\.App\\8\.'
+                } | Select-Object -First 1
+                $winFormsPath = $modulePaths | Where-Object {
+                    (Split-Path $_ -Leaf) -eq 'System.Windows.Forms.dll' -and $_ -match 'Microsoft\.WindowsDesktop\.App\\8\.'
+                } | Select-Object -First 1
             } catch {
                 Write-Host "Could not read loaded modules: $($_.Exception.Message)"
             }
@@ -408,12 +412,15 @@ try {
             "Process exit code: $appExitCode"
             "Loaded coreclr.dll (8.x): $coreclrPath"
             "Loaded System.Windows.Forms.dll (8.x): $winFormsPath"
+            ''
+            '8.x framework modules loaded by the app:'
+            ($modulePaths | Where-Object { $_ -match 'Microsoft\.(NETCore|WindowsDesktop)\.App\\8\.' } | Sort-Object | ForEach-Object { "  $_" })
         )
         Set-Content -LiteralPath (Join-Path $evidence 'app-launch.txt') -Value $launchReport -Encoding utf8
 
         Assert-True $appDirCreated 'App reached managed Main (it created %LOCALAPPDATA%\LiveWall)'
         Assert-True $alive 'App process is still running after startup' "exit code: $appExitCode"
-        Assert-True ($coreclrPath -ne '') 'App loaded the 8.x Microsoft.NETCore.App runtime' "loaded: $coreclrPath"
+        Assert-True ($coreclrPath -ne '') 'App loaded coreclr.dll from the 8.x Microsoft.NETCore.App runtime' "loaded: $coreclrPath"
         Assert-True ($winFormsPath -ne '') 'App loaded the 8.x Microsoft.WindowsDesktop.App runtime' "loaded: $winFormsPath"
     }
 
