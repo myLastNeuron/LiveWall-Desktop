@@ -28,6 +28,7 @@ if ($BuiltExe) { $BuiltExe = (Resolve-Path $BuiltExe).Path }
 $dotnetRoot = Join-Path $env:ProgramFiles 'dotnet'
 $env:DOTNET_ROOT = $dotnetRoot
 $frameworkDir = Join-Path $dotnetRoot 'shared\Microsoft.WindowsDesktop.App'
+$coreFrameworkDir = Join-Path $dotnetRoot 'shared\Microsoft.NETCore.App'
 $appData = Join-Path $env:LOCALAPPDATA 'LiveWall'
 
 $checks = [Collections.Generic.List[object]]::new()
@@ -62,9 +63,9 @@ function Get-RawRuntimeDirs {
     Get-ChildItem -LiteralPath $frameworkDir -Directory | Sort-Object Name | ForEach-Object { $_.Name }
 }
 
-function Get-DesktopVersions {
-    if (-not (Test-Path -LiteralPath $frameworkDir)) { return @() }
-    Get-ChildItem -LiteralPath $frameworkDir -Directory | ForEach-Object {
+function Get-Versions([string]$FrameworkDir) {
+    if (-not (Test-Path -LiteralPath $FrameworkDir)) { return @() }
+    Get-ChildItem -LiteralPath $FrameworkDir -Directory | ForEach-Object {
         $parsed = $null
         if ([version]::TryParse($_.Name, [ref]$parsed)) {
             [pscustomobject]@{
@@ -77,8 +78,15 @@ function Get-DesktopVersions {
     }
 }
 
+function Get-DesktopVersions { Get-Versions $frameworkDir }
+function Get-CoreVersions { Get-Versions $coreFrameworkDir }
+
 function Get-Majors {
     @((Get-DesktopVersions) | ForEach-Object { $_.Major } | Sort-Object -Unique)
+}
+
+function Get-CoreMajors {
+    @((Get-CoreVersions) | ForEach-Object { $_.Major } | Sort-Object -Unique)
 }
 
 function Get-DesiredMajors {
@@ -97,7 +105,9 @@ function Stop-DotnetHosts {
 }
 
 function Ensure-DesktopRuntime([int]$Major) {
-    if (Get-DesktopVersions | Where-Object { $_.Major -eq $Major }) { return }
+    $hasDesktop = Get-DesktopVersions | Where-Object { $_.Major -eq $Major }
+    $hasCore = Get-CoreVersions | Where-Object { $_.Major -eq $Major }
+    if ($hasDesktop -and $hasCore) { return }
 
     $installer = Join-Path $env:RUNNER_TEMP 'dotnet-install.ps1'
     if (-not (Test-Path -LiteralPath $installer)) {
@@ -110,19 +120,22 @@ function Ensure-DesktopRuntime([int]$Major) {
     $pwsh = (Get-Process -Id $PID).Path
     & $pwsh -NoProfile -ExecutionPolicy Bypass -File $installer -Channel "$Major.0" -Runtime windowsdesktop -InstallDir $dotnetRoot -NoPath
     if ($LASTEXITCODE -ne 0) { throw "dotnet-install.ps1 failed for major $Major (exit $LASTEXITCODE)" }
-    if (-not (Get-DesktopVersions | Where-Object { $_.Major -eq $Major })) {
-        throw "dotnet-install.ps1 reported success but no $Major.x Desktop Runtime is present"
+    if (-not (Get-DesktopVersions | Where-Object { $_.Major -eq $Major }) -or
+        -not (Get-CoreVersions | Where-Object { $_.Major -eq $Major })) {
+        throw "dotnet-install.ps1 reported success but no $Major.x Desktop/Core Runtime is present"
     }
 }
 
-function Hide-DesktopRuntime($Version) {
-    $disabled = Join-Path $Version.Path ($Version.Name + '.disabled-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
-    try {
-        Move-Item -LiteralPath $Version.Path -Destination $disabled -ErrorAction Stop
-        Write-Host "Hid Desktop Runtime $($Version.Name) -> $(Split-Path $disabled -Leaf)"
-    } catch {
-        Write-Host "Rename failed for $($Version.Name), deleting it: $($_.Exception.Message)"
-        Remove-Item -LiteralPath $Version.Path -Recurse -Force -ErrorAction Stop
+function Remove-RuntimeVersion($Version) {
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            Remove-Item -LiteralPath $Version.Path -Recurse -Force -ErrorAction Stop
+            Write-Host "Removed runtime $($Version.Name)"
+            return
+        } catch {
+            if ($attempt -eq 3) { throw "Could not remove $($Version.Path): $($_.Exception.Message)" }
+            Start-Sleep -Seconds 1
+        }
     }
 }
 
@@ -130,7 +143,10 @@ function Set-RuntimeState {
     $desired = Get-DesiredMajors
     foreach ($major in $desired) { Ensure-DesktopRuntime $major }
     foreach ($version in Get-DesktopVersions) {
-        if ($version.Major -notin $desired) { Hide-DesktopRuntime $version }
+        if ($version.Major -notin $desired) { Remove-RuntimeVersion $version }
+    }
+    foreach ($version in Get-CoreVersions) {
+        if ($version.Major -notin $desired) { Remove-RuntimeVersion $version }
     }
 }
 
@@ -143,17 +159,19 @@ function Save-RuntimeState([string]$Name) {
         (& dotnet --list-runtimes 2>&1 | ForEach-Object { "  $_" })
         ''
         "Parsed Desktop Runtime majors: $((Get-Majors) -join ', ')"
+        "Parsed Core Runtime majors: $((Get-CoreMajors) -join ', ')"
     )
     Set-Content -LiteralPath (Join-Path $evidence $Name) -Value $lines -Encoding utf8
 }
 
 function Save-RuntimeSnapshot([string]$Name) {
-    $versions = Get-DesktopVersions
-    $lines = if ($versions) {
-        $versions | ForEach-Object { "$($_.Name)`t$($_.Path)" }
-    } else {
-        @('MISSING: no Microsoft.WindowsDesktop.App version')
-    }
+    $lines = @('Microsoft.WindowsDesktop.App:')
+    $desktop = Get-DesktopVersions
+    $lines += if ($desktop) { $desktop | ForEach-Object { "  $($_.Name)`t$($_.Path)" } } else { @('  MISSING') }
+    $lines += ''
+    $lines += 'Microsoft.NETCore.App:'
+    $core = Get-CoreVersions
+    $lines += if ($core) { $core | ForEach-Object { "  $($_.Name)`t$($_.Path)" } } else { @('  MISSING') }
     Set-Content -LiteralPath (Join-Path $evidence $Name) -Value $lines -Encoding utf8
 }
 
@@ -180,12 +198,18 @@ try {
     Set-RuntimeState
     Save-RuntimeSnapshot 'runtime-state-before.txt'
     Save-RuntimeState 'runtime-state-before.txt.details'
+    & reg query 'HKLM\SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx' /s 2>&1 |
+        Set-Content -LiteralPath (Join-Path $evidence 'registry-before.txt') -Encoding utf8
 
     $desired = Get-DesiredMajors
     $beforeMajors = Get-Majors
+    $beforeCoreMajors = Get-CoreMajors
     Assert-True (($beforeMajors -join ',') -eq (($desired | Sort-Object) -join ',')) `
         'Test precondition has the requested Desktop Runtime majors' `
         "expected [$($desired -join ',')], got [$($beforeMajors -join ',')]"
+    Assert-True (($beforeCoreMajors -join ',') -eq (($desired | Sort-Object) -join ',')) `
+        'Test precondition has the requested Core Runtime majors' `
+        "expected [$($desired -join ',')], got [$($beforeCoreMajors -join ',')]"
     Assert-True (($Case -ne 'dotnet9-only' -and $Case -ne 'dotnet10-only') -or ($beforeMajors -notcontains 8)) `
         'No 8.x Desktop Runtime is present before setup' `
         "majors: [$($beforeMajors -join ',')]"
@@ -232,10 +256,15 @@ try {
 
     Save-RuntimeSnapshot 'runtime-state-after.txt'
     Save-RuntimeState 'runtime-state-after.txt.details'
+    & reg query 'HKLM\SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx' /s 2>&1 |
+        Set-Content -LiteralPath (Join-Path $evidence 'registry-after.txt') -Encoding utf8
     $afterMajors = Get-Majors
+    $afterCoreMajors = Get-CoreMajors
     Assert-True ($afterMajors -contains 8) 'An 8.x Desktop Runtime is present after setup' "majors: [$($afterMajors -join ',')]"
+    Assert-True ($afterCoreMajors -contains 8) 'An 8.x Core Runtime is present after setup' "majors: [$($afterCoreMajors -join ',')]"
     if ($Case -eq 'dotnet8-and-9') {
         Assert-True ($afterMajors -contains 9) 'The pre-existing 9.x runtime is left in place'
+        Assert-True ($afterCoreMajors -contains 9) 'The pre-existing 9.x Core Runtime is left in place'
     }
 
     Write-Step 'Inspect runtimeconfig and the installed binary'
@@ -345,7 +374,9 @@ try {
         setupExe = $SetupExe
         setupExitCode = $setupExit
         runtimeMajorsBefore = @($beforeMajors)
+        coreMajorsBefore = @($beforeCoreMajors)
         runtimeMajorsAfter = @(Get-Majors)
+        coreMajorsAfter = @(Get-CoreMajors)
         expectedDotnetDownload = $expectedDownload
         actualDotnetDownload = $downloadedDotnet
         runtimeConfigFrameworkVersion = $frameworkVersion
