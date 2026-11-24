@@ -1,0 +1,47 @@
+name: LW-2 installer diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Diagnose .NET 8 installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $dotnetRoot = Join-Path $env:ProgramFiles 'dotnet'
+          Get-Process dotnet, VBCSCompiler, MSBuild -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 1
+          foreach ($framework in 'Microsoft.WindowsDesktop.App', 'Microsoft.NETCore.App') {
+            $dir = Join-Path $dotnetRoot "shared\$framework"
+            Get-ChildItem $dir -Directory -ErrorAction SilentlyContinue |
+              Where-Object { [version]::TryParse($_.Name, [ref]$null) -and $_.Name -like '8.*' } |
+              Remove-Item -Recurse -Force -ErrorAction Continue
+          }
+          "--- runtimes before ---"
+          & dotnet --list-runtimes
+          "--- download ---"
+          $exe = Join-Path $env:RUNNER_TEMP 'dotnet8.exe'
+          Invoke-WebRequest 'https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe' -OutFile $exe -UseBasicParsing
+          Get-Item $exe | Select-Object Name, Length, VersionInfo
+          Get-FileHash $exe -Algorithm SHA256
+          "--- install ---"
+          $log = Join-Path $env:RUNNER_TEMP 'dotnet8-install.log'
+          $p = Start-Process -FilePath $exe -ArgumentList '/install', '/quiet', '/norestart', '/log', $log -Wait -PassThru
+          "exit code: $($p.ExitCode)"
+          "--- runtimes after ---"
+          & dotnet --list-runtimes
+          Get-ChildItem (Join-Path $dotnetRoot 'shared\Microsoft.WindowsDesktop.App') -Directory -ErrorAction SilentlyContinue | Select-Object Name
+          Get-ChildItem (Join-Path $dotnetRoot 'shared\Microsoft.NETCore.App') -Directory -ErrorAction SilentlyContinue | Select-Object Name
+          "--- installer log ---"
+          if (Test-Path $log) { Get-Content $log -Tail 300 } else { 'NO LOG FILE' }
+          "--- burn logs ---"
+          Get-ChildItem $env:TEMP -Filter 'dd_*.log' -ErrorAction SilentlyContinue | Select-Object FullName, Length
+          Get-ChildItem $env:TEMP -Filter 'dotnet*.log' -ErrorAction SilentlyContinue | Select-Object FullName, Length
