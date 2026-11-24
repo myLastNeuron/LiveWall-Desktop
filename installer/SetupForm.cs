@@ -72,12 +72,11 @@ internal sealed class SetupForm : Form
         if (_installed) { Close(); return; }
         if (_busy) return;
 
-        var dir = _dir.Text.Trim().TrimEnd('\\', '/');
+        string dir;
         try
         {
-            dir = Path.GetFullPath(dir);
-            if (dir == Path.GetPathRoot(dir)?.TrimEnd('\\'))
-                throw new InvalidOperationException("Pick a folder below a drive root, e.g. D:\\LiveWall.");
+            dir = InstallOwnership.ValidateInstallTarget(_dir.Text);
+            _dir.Text = dir;
         }
         catch (Exception ex)
         {

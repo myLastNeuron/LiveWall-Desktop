@@ -7,6 +7,15 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
 
+        var silent = args.Contains("--silent");
+        var cleanup = Array.IndexOf(args, "--cleanup");
+        if (cleanup >= 0)
+        {
+            if (args.Length > cleanup + 2 && int.TryParse(args[cleanup + 2], out var parentProcessId))
+                Environment.Exit(Install.CleanupAfterExit(args[cleanup + 1], parentProcessId, silent));
+            Environment.Exit(2);
+        }
+
         var self = Environment.ProcessPath ?? "";
         var uninstall = args.Contains("--uninstall") ||
                         Path.GetFileNameWithoutExtension(self).Equals("Uninstall", StringComparison.OrdinalIgnoreCase);
@@ -14,18 +23,18 @@ internal static class Program
         if (uninstall)
         {
             // The uninstaller sits in the install folder it is removing.
-            Install.Uninstall(Path.GetDirectoryName(self)!);
-            return;
+            Environment.Exit(Install.Uninstall(Path.GetDirectoryName(self)!, silent) ? 0 : 2);
         }
 
         // Unattended: LiveWallSetup.exe --silent <folder> [--desktop]
         var s = Array.IndexOf(args, "--silent");
-        if (s >= 0 && args.Length > s + 1)
+        if (s >= 0)
         {
             var log = Path.Combine(Path.GetTempPath(), "livewall-setup.log");
             File.WriteAllText(log, "");
             try
             {
+                if (args.Length <= s + 1) throw new InvalidOperationException("Missing install folder after --silent.");
                 Install.RunAsync(args[s + 1], args.Contains("--desktop"),
                     (pct, text) => File.AppendAllText(log, $"{pct,3}% {text}\r\n")).GetAwaiter().GetResult();
                 File.AppendAllText(log, "done\r\n");
