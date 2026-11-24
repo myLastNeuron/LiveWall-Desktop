@@ -13,6 +13,8 @@ internal static class Install
     // derived from the csproj <Version>: one place to bump, no copy to drift
     internal static string AppVersion => typeof(Install).Assembly.GetName().Version!.ToString(3);
 
+    private static string UninstallLog => Path.Combine(Path.GetTempPath(), "livewall-uninstall.log");
+
     private const string DotNetUrl = "https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe";
     private const string WebView2Url = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
     private const string WebView2ClientId = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
@@ -28,6 +30,9 @@ internal static class Install
 
     internal static Task RunAsync(string dir, bool desktopShortcut, Action<int, string> report) => Task.Run(async () =>
     {
+        dir = InstallOwnership.ValidateInstallTarget(dir);
+        var previous = InstallOwnership.ReadMarker(dir);
+
         report(0, "Creating install folder...");
         Directory.CreateDirectory(dir);
         try { File.WriteAllText(Path.Combine(dir, ".writetest"), ""); File.Delete(Path.Combine(dir, ".writetest")); }
@@ -35,7 +40,28 @@ internal static class Install
 
         report(5, "Copying LiveWall...");
         StopApp(); // an upgrade must be able to overwrite the running exe
-        ExtractPayload(dir);
+        var uninstallExe = Path.Combine(dir, "Uninstall.exe");
+        ExtractPayload(dir, installedFiles =>
+        {
+            report(8, "Recording install ownership...");
+            var self = Environment.ProcessPath!;
+            var copied = false;
+            try
+            {
+                if (!string.Equals(self, uninstallExe, StringComparison.OrdinalIgnoreCase))
+                {
+                    File.Copy(self, uninstallExe, overwrite: true);
+                    copied = true;
+                }
+                installedFiles.Add("Uninstall.exe");
+                InstallOwnership.WriteMarker(dir, AppVersion, installedFiles, previous);
+            }
+            catch
+            {
+                if (copied) try { File.Delete(uninstallExe); } catch { /* best effort */ }
+                throw;
+            }
+        });
 
         // Dependencies the app needs that this PC may not have yet.
         if (!HasDesktopRuntime())
@@ -57,10 +83,6 @@ internal static class Install
         else if (File.Exists(DesktopLnk)) File.Delete(DesktopLnk);
 
         report(96, "Registering uninstaller...");
-        var uninstallExe = Path.Combine(dir, "Uninstall.exe");
-        var self = Environment.ProcessPath!;
-        if (!string.Equals(self, uninstallExe, StringComparison.OrdinalIgnoreCase))
-            File.Copy(self, uninstallExe, overwrite: true);
         RegisterUninstall(dir, uninstallExe);
 
         report(100, "Done.");
@@ -74,7 +96,7 @@ internal static class Install
         }
     }
 
-    private static void ExtractPayload(string dir)
+    private static void ExtractPayload(string dir, Action<List<string>> beforeExtract)
     {
         var zip = Path.Combine(Path.GetTempPath(), "LiveWallSetup-" + Guid.NewGuid().ToString("N") + ".zip");
         try
@@ -82,6 +104,15 @@ internal static class Install
             using var res = Assembly.GetExecutingAssembly().GetManifestResourceStream("payload.zip")
                 ?? throw new InvalidOperationException("The setup file is damaged (payload missing).");
             using (var f = File.Create(zip)) res.CopyTo(f);
+
+            var files = new List<string>();
+            using (var archive = ZipFile.OpenRead(zip))
+                foreach (var entry in archive.Entries)
+                    if (!string.IsNullOrEmpty(entry.Name))
+                        files.Add(entry.FullName);
+
+            // Marker first: if extraction fails, the folder is still safely owned and retryable.
+            beforeExtract(files);
             ZipFile.ExtractToDirectory(zip, dir, overwriteFiles: true);
         }
         finally { try { File.Delete(zip); } catch { /* temp file */ } }
@@ -200,13 +231,43 @@ internal static class Install
         key.SetValue("EstimatedSize", (int)(bytes / 1024), RegistryValueKind.DWord);
     }
 
-    /// <summary>Runs as Uninstall.exe: remove app, shortcuts, registry entry, then the folder itself.</summary>
-    internal static void Uninstall(string dir)
+    /// <summary>Runs as Uninstall.exe: verify ownership before removing anything.</summary>
+    internal static bool Uninstall(string dir, bool silent)
     {
-        if (MessageBox.Show(
+        try { dir = InstallOwnership.NormalizePath(dir); }
+        catch (Exception ex)
+        {
+            ReportUninstall("Uninstall refused.", ex.Message, silent);
+            return false;
+        }
+
+        var marker = InstallOwnership.ReadMarker(dir);
+        if (marker is null)
+        {
+            ReportUninstall("Uninstall refused.",
+                $"This is not a LiveWall install folder, or {InstallOwnership.MarkerFileName} is missing or invalid.\n\n" +
+                $"No files were removed from:\n{dir}", silent);
+            return false;
+        }
+
+        if (!silent && MessageBox.Show(
                 $"Remove {AppName} from this PC?\n\n{dir}",
                 "Uninstall " + AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-            return;
+            return false;
+
+        string helper;
+        try
+        {
+            // The uninstaller lives in the folder being cleaned, so a temp copy removes the known
+            // files after this process exits. It never recursively deletes the install folder.
+            helper = Path.Combine(Path.GetTempPath(), "LiveWallUninstall-" + Guid.NewGuid().ToString("N") + ".exe");
+            File.Copy(Environment.ProcessPath!, helper, overwrite: true);
+        }
+        catch (Exception ex)
+        {
+            ReportUninstall("Could not prepare the uninstall cleanup.", ex.Message, silent);
+            return false;
+        }
 
         StopApp();
 
@@ -226,9 +287,71 @@ internal static class Install
         }
         catch { /* nothing to remove */ }
 
-        // This exe lives inside dir, so let cmd delete it after we exit.
-        Process.Start(new ProcessStartInfo("cmd.exe",
-            $"/c ping -n 3 127.0.0.1 >nul & rd /s /q \"{dir}\"")
-        { CreateNoWindow = true, UseShellExecute = false, WorkingDirectory = Path.GetTempPath() });
+        try
+        {
+            var psi = new ProcessStartInfo(helper)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = Path.GetTempPath(),
+            };
+            psi.ArgumentList.Add("--cleanup");
+            psi.ArgumentList.Add(dir);
+            psi.ArgumentList.Add(Environment.ProcessId.ToString());
+            if (silent) psi.ArgumentList.Add("--silent");
+            Process.Start(psi)?.Dispose();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            ReportUninstall("Could not start the uninstall cleanup.", ex.Message, silent);
+            return false;
+        }
+    }
+
+    internal static int CleanupAfterExit(string dir, int parentProcessId, bool silent)
+    {
+        try { dir = InstallOwnership.NormalizePath(dir); }
+        catch (Exception ex)
+        {
+            LogUninstall("refused: " + ex.Message);
+            return 2;
+        }
+
+        try { using var parent = Process.GetProcessById(parentProcessId); parent.WaitForExit(30_000); }
+        catch { /* the setup process already exited */ }
+
+        var marker = InstallOwnership.ReadMarker(dir);
+        if (marker is null)
+        {
+            LogUninstall("refused: marker missing or invalid: " + InstallOwnership.MarkerPath(dir));
+            if (!silent) MessageBox.Show(
+                $"This is not a LiveWall install folder, or {InstallOwnership.MarkerFileName} is missing or invalid.\n\n" +
+                $"No files were removed from:\n{dir}",
+                "Uninstall " + AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return 2;
+        }
+
+        LogUninstall("cleaning " + dir);
+        var ok = InstallOwnership.DeleteOwnedFiles(dir, marker, LogUninstall);
+        LogUninstall(ok ? "cleanup complete" : "cleanup incomplete");
+        if (!ok && !silent)
+            MessageBox.Show(
+                $"Some LiveWall files could not be removed. The install marker was kept so cleanup can be retried.\n\n" +
+                $"Log: {UninstallLog}",
+                "Uninstall " + AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        return ok ? 0 : 3;
+    }
+
+    private static void ReportUninstall(string title, string message, bool silent)
+    {
+        LogUninstall(title + " " + message.Replace("\r", " ").Replace("\n", " "));
+        if (!silent) MessageBox.Show(message, title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+    }
+
+    private static void LogUninstall(string message)
+    {
+        try { File.AppendAllText(UninstallLog, $"{DateTimeOffset.UtcNow:O} {message}\r\n"); }
+        catch { /* diagnostics must not break uninstall */ }
     }
 }

@@ -27,6 +27,8 @@ Install.
 A few things the setup takes care of:
 
 - Installs per user (default `%LOCALAPPDATA%\Programs\LiveWall`), so there is no admin prompt.
+- Refuses drive roots, `C:\Windows`, traversal paths, and non-empty folders that are not an
+  existing LiveWall install. A `.livewall-install.json` ownership marker makes the scope explicit.
 - Downloads only what the PC is missing: the .NET 8 Desktop Runtime (it asks for admin once)
   and the WebView2 Runtime. If they are already there, it skips them.
 - Adds a Start Menu shortcut, an optional desktop shortcut, and an entry in Windows
@@ -38,6 +40,11 @@ installer.
 
 Unattended install: `LiveWallSetup.exe --silent "D:\Apps\LiveWall" [--desktop]`, with the log
 in `%TEMP%\livewall-setup.log`.
+
+Uninstall removes only the files recorded in `.livewall-install.json`, plus the marker itself. It
+does not recursively delete the selected folder, so unrelated files placed there are left intact.
+User settings, the wallpaper library, cached proxies, and the WebView2 profile in
+`%LOCALAPPDATA%\LiveWall` are intentionally kept. Unattended uninstall: `Uninstall.exe --silent`.
 
 ## Build from source
 

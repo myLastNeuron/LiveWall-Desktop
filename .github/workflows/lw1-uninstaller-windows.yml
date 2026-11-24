@@ -1,0 +1,30 @@
+name: LW-1 uninstaller safety
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/lw-1-ownership-uninstaller
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Run Windows 10/11 installer matrix
+        shell: pwsh
+        run: ./tools/test-uninstaller.ps1
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lw1-windows-evidence
+          path: artifacts/lw1-uninstaller
+          if-no-files-found: warn

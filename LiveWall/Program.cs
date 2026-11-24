@@ -69,7 +69,7 @@ internal static class Web
             if (_shared is null || _shared.IsFaulted || _shared.IsCanceled)
                 _shared = CoreWebView2Environment.CreateAsync(
                     browserExecutableFolder: null,
-                    userDataFolder: Path.Combine(AppContext.BaseDirectory, "LiveWall.exe.WebView2"),
+                    userDataFolder: Path.Combine(Program.AppDir, "WebView2"),
                     options: null);
             return _shared;
         }
